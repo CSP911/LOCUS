@@ -1,0 +1,22 @@
+{
+  "name": "@locus/db",
+  "version": "0.1.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "migrate": "tsx src/migrations/run.ts",
+    "seed": "tsx src/seed/index.ts",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.0",
+    "@locus/shared": "*"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "typescript": "^5.4.0",
+    "tsx": "^4.9.0",
+    "@types/node": "^20.0.0"
+  }
+}

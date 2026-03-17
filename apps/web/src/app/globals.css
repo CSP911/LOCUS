@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --locus-bg: #06080d;
+  --locus-surface: #0d1020;
+  --locus-border: rgba(255, 255, 255, 0.08);
+  --locus-text-primary: rgba(255, 255, 255, 0.88);
+  --locus-text-secondary: rgba(255, 255, 255, 0.45);
+  --locus-text-hint: rgba(255, 255, 255, 0.2);
+
+  /* Domain colors */
+  --color-foundation: #7ec8e3; /* X — 기반 */
+  --color-output: #ddd8b0;     /* Y — 성과 */
+  --color-connection: #f0a870; /* Z — 관계 */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  background: var(--locus-bg);
+  color: var(--locus-text-primary);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+/* Input reset */
+input::placeholder { color: var(--locus-text-hint); }
+input:focus { outline: none; }
+
+/* Selection */
+::selection { background: rgba(126, 200, 227, 0.2); }
