@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useMemo, useState, useEffect } from 'react'
+import { useRef, useMemo, useState, useEffect, useCallback } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
@@ -225,21 +225,47 @@ function PlanetMesh({
   star,
   pos,
   isAnchor,
+  anchorPos,
+  onGroupRef,
+  isHeaviestAnchor,
 }: {
   star: Star
   pos: [number, number, number]
   isAnchor: boolean
+  anchorPos?: [number, number, number]
+  onGroupRef?: (id: string, ref: THREE.Group | null) => void
+  isHeaviestAnchor?: boolean  // 전체에서 가장 무거운 항성
 }) {
   const groupRef = useRef<THREE.Group>(null)
+
+  // Register group ref for gravity line tracking
+  useEffect(() => {
+    if (onGroupRef) onGroupRef(star.id, groupRef.current)
+    return () => { if (onGroupRef) onGroupRef(star.id, null) }
+  }, [star.id, onGroupRef])
   const planetRef = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
 
   const color = useMemo(() => new THREE.Color(COLORS[star.domain]), [star.domain])
   const color2 = useMemo(() => new THREE.Color(COLORS2[star.domain]), [star.domain])
 
-  const coreSize = isAnchor
+  // 3) 시간의 층위 — 나이에 따른 선명도
+  const ageFactor = useMemo(() => {
+    const ageMs = Date.now() - new Date(star.createdAt).getTime()
+    const ageHours = ageMs / (1000 * 60 * 60)
+    if (ageHours < 1) return 1.0          // 방금: 가장 선명
+    if (ageHours < 24) return 0.9         // 오늘: 거의 선명
+    if (ageHours < 24 * 7) return 0.7     // 이번 주: 살짝 희미
+    if (ageHours < 24 * 14) return 0.5    // 2주: 희미
+    if (ageHours < 24 * 30) return 0.35   // 한 달: 꽤 희미
+    return 0.2                             // 오래됨: 성운에 거의 흡수
+  }, [star.createdAt])
+
+  const baseCoreSize = isAnchor
     ? 0.25 + star.mass * 0.045
     : 0.12 + star.mass * 0.025
+  // 오래된 별은 약간 작아짐
+  const coreSize = baseCoreSize * (0.7 + ageFactor * 0.3)
   const seed = seeded(star.id, 5)
 
   // Planet surface material
@@ -254,19 +280,19 @@ function PlanetMesh({
     },
   }), [color, color2, seed])
 
-  // Atmosphere material
+  // Atmosphere material — ageFactor dims older stars
   const atmoMaterial = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: atmosphereVertexShader,
     fragmentShader: atmosphereFragmentShader,
     uniforms: {
       uColor: { value: color },
-      uIntensity: { value: isAnchor ? 1.2 : 0.8 },
+      uIntensity: { value: (isAnchor ? 1.2 : 0.8) * ageFactor },
     },
     transparent: true,
     side: THREE.BackSide,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-  }), [color, isAnchor])
+  }), [color, isAnchor, ageFactor])
 
   // Glow texture for outer halo
   const glowTex = useMemo(() => {
@@ -292,13 +318,29 @@ function PlanetMesh({
     return () => clearTimeout(t)
   }, [])
 
-  const driftSeed = useRef(seeded(star.id, 3) * Math.PI * 2)
-  const rotSpeed = 0.08 + seed * 0.12 // each planet rotates differently
-  // tilt axis
+  const rotSpeed = 0.08 + seed * 0.12
+
   const tiltAxis = useMemo(() => {
     const tilt = (seeded(star.id, 6) - 0.5) * 0.5
     return new THREE.Euler(tilt, 0, tilt * 0.5)
   }, [star.id])
+
+  // Orbit parameters (deterministic per star)
+  const orbitAngleRef = useRef(seeded(star.id, 3) * Math.PI * 2)
+  const orbitRadius = useMemo(() => {
+    if (isAnchor || !anchorPos) return 0
+    const dx = pos[0] - anchorPos[0]
+    const dy = pos[1] - anchorPos[1]
+    const dz = pos[2] - anchorPos[2]
+    return Math.sqrt(dx * dx + dy * dy + dz * dz)
+  }, [pos, anchorPos, isAnchor])
+  // Lighter planets orbit faster, heavier ones slower
+  const orbitSpeed = useMemo(() => {
+    if (isAnchor) return 0
+    return 0.15 + (1 / (star.mass + 1)) * 0.2
+  }, [isAnchor, star.mass])
+  // Orbit tilt — each planet orbits on a slightly tilted plane
+  const orbitTilt = useMemo(() => (seeded(star.id, 7) - 0.5) * 0.6, [star.id])
 
   useFrame((state, delta) => {
     if (!groupRef.current) return
@@ -308,25 +350,35 @@ function PlanetMesh({
       birthRef.current = Math.min(1, birthRef.current + delta * 1.5)
     }
 
-    // Gentle pulse
-    const pulse = 1 + Math.sin(state.clock.elapsedTime * 1.0 + star.mass * 2) * 0.025
+    // Pulse — 가장 무거운 항성은 느리고 깊은 심장박동
+    let pulse: number
+    if (isHeaviestAnchor) {
+      // 느린 맥동: 심장처럼 쿵... 쿵... (두 번 뛰는 패턴)
+      const t = state.clock.elapsedTime * 0.8
+      const beat1 = Math.pow(Math.max(0, Math.sin(t * Math.PI)), 4)
+      const beat2 = Math.pow(Math.max(0, Math.sin((t + 0.15) * Math.PI)), 6) * 0.5
+      pulse = 1 + (beat1 + beat2) * 0.06
+    } else {
+      pulse = 1 + Math.sin(state.clock.elapsedTime * 1.0 + star.mass * 2) * 0.025
+    }
     groupRef.current.scale.setScalar(birthRef.current * pulse)
 
-    // Self-rotation
+    // Self-rotation (자전)
     if (planetRef.current) {
       planetRef.current.rotation.y += delta * rotSpeed
     }
 
-    // Orbital drift
-    if (!isAnchor) {
-      driftSeed.current += delta * 0.12
-      const dx = Math.sin(driftSeed.current) * 0.1
-      const dy = Math.cos(driftSeed.current * 0.7) * 0.07
-      groupRef.current.position.x = pos[0] + dx
-      groupRef.current.position.y = pos[1] + dy
+    // Orbital revolution (공전) — non-anchors orbit around anchor
+    if (!isAnchor && anchorPos && orbitRadius > 0) {
+      orbitAngleRef.current += delta * orbitSpeed
+      const angle = orbitAngleRef.current
+      const r = orbitRadius
+
+      groupRef.current.position.x = anchorPos[0] + Math.cos(angle) * r
+      groupRef.current.position.y = anchorPos[1] + Math.sin(angle * 0.4) * r * Math.sin(orbitTilt)
+      groupRef.current.position.z = anchorPos[2] + Math.sin(angle) * r
     }
 
-    // Update shader time
     planetMaterial.uniforms.uTime.value = state.clock.elapsedTime
   })
 
@@ -351,13 +403,13 @@ function PlanetMesh({
         <sphereGeometry args={[coreSize * 1.25, 32, 32]} />
       </mesh>
 
-      {/* Outer glow sprite */}
+      {/* Outer glow sprite — fades with age */}
       <sprite scale={[glowScale, glowScale, 1]}>
         <spriteMaterial
           map={glowTex}
           color={color}
           transparent
-          opacity={isAnchor ? 0.2 : 0.08}
+          opacity={(isAnchor ? 0.2 : 0.08) * ageFactor}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
@@ -370,14 +422,20 @@ function PlanetMesh({
             background: 'rgba(6,8,13,0.92)',
             border: '0.5px solid rgba(255,255,255,0.1)',
             borderRadius: 8,
-            padding: '5px 10px',
+            padding: '6px 10px',
             color: 'rgba(255,255,255,0.7)',
             fontSize: 11,
             whiteSpace: 'nowrap',
-            transform: 'translateY(-28px)',
+            transform: 'translateY(-36px)',
             backdropFilter: 'blur(8px)',
+            textAlign: 'center',
           }}>
-            {star.text}
+            {star.question && (
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginBottom: 3 }}>
+                {star.question}
+              </div>
+            )}
+            <div>{star.text}</div>
           </div>
         </Html>
       )}
@@ -385,69 +443,195 @@ function PlanetMesh({
   )
 }
 
-// ── Gravity Lines ─────────────────────────────────
-function GravityLines({ stars, positions, anchorIds }: {
-  stars: Star[]
-  positions: Map<string, [number, number, number]>
-  anchorIds: Set<string>
+// ── Live Gravity Line (follows orbiting planet) ───
+function LiveGravityLine({ starId, anchorId, domain, refs }: {
+  starId: string
+  anchorId: string
+  domain: Domain
+  refs: React.MutableRefObject<Map<string, THREE.Group>>
 }) {
-  const lineData = useMemo(() => {
-    const lines: { from: [number, number, number]; to: [number, number, number]; domain: Domain }[] = []
-    for (const star of stars) {
-      if (anchorIds.has(star.id) || !star.orbitParent) continue
-      const from = positions.get(star.id)
-      const to = positions.get(star.orbitParent)
-      if (from && to) lines.push({ from, to, domain: star.domain })
-    }
-    return lines
-  }, [stars, positions, anchorIds])
+  const lineRef = useRef<THREE.BufferGeometry>(null)
+  const posArray = useMemo(() => new Float32Array(6), [])
+
+  useFrame(() => {
+    const starGroup = refs.current.get(starId)
+    const anchorGroup = refs.current.get(anchorId)
+    if (!starGroup || !anchorGroup || !lineRef.current) return
+
+    const sp = starGroup.position
+    const ap = anchorGroup.position
+    posArray[0] = sp.x; posArray[1] = sp.y; posArray[2] = sp.z
+    posArray[3] = ap.x; posArray[4] = ap.y; posArray[5] = ap.z
+
+    lineRef.current.setAttribute('position', new THREE.BufferAttribute(posArray, 3))
+    lineRef.current.attributes.position.needsUpdate = true
+  })
+
+  return (
+    <line>
+      <bufferGeometry ref={lineRef}>
+        <bufferAttribute attach="attributes-position" args={[posArray, 3]} />
+      </bufferGeometry>
+      <lineBasicMaterial
+        color={COLORS[domain]}
+        transparent
+        opacity={0.035}
+        blending={THREE.AdditiveBlending}
+      />
+    </line>
+  )
+}
+
+// ── Gravity Lines container ───────────────────────
+function GravityLines({ stars, anchorIds, planetRefs }: {
+  stars: Star[]
+  anchorIds: Set<string>
+  planetRefs: React.MutableRefObject<Map<string, THREE.Group>>
+}) {
+  const links = useMemo(() => {
+    return stars
+      .filter(s => !anchorIds.has(s.id) && s.orbitParent)
+      .map(s => ({ starId: s.id, anchorId: s.orbitParent!, domain: s.domain }))
+  }, [stars, anchorIds])
 
   return (
     <>
-      {lineData.map((line, i) => (
-        <Line
-          key={i}
-          points={[line.from, line.to]}
-          color={COLORS[line.domain]}
-          transparent
-          opacity={0.035}
-          lineWidth={0.5}
+      {links.map(link => (
+        <LiveGravityLine
+          key={link.starId}
+          starId={link.starId}
+          anchorId={link.anchorId}
+          domain={link.domain}
+          refs={planetRefs}
         />
       ))}
     </>
   )
 }
 
+// ── Star Candy — X/Y/Z 균형 형상 ──────────────────
+// 사용자에게 "Star Candy"라는 이름은 보이지 않는다.
+// 성운 중심에 은은한 삼각형이 떠 있고, 각 꼭짓점이
+// X/Y/Z 누적 질량에 비례해 늘어난다.
+// ── Nebula Clouds — 도메인별 빛 구름 ──────────────
+// 삼각형 대신, 각 도메인 영역에 거대한 빛 구름이 피어남.
+// 많이 던진 영역은 크고 밝게, 안 던진 영역은 작고 어둡게.
+// 라벨 없이 빛의 온도만으로 균형/불균형을 느끼게 한다.
+function NebulaClouds({ stars }: { stars: Star[] }) {
+  const domainMass = useMemo(() => {
+    const w = { X: 0, Y: 0, Z: 0 }
+    stars.forEach(s => { w[s.domain] += s.mass })
+    return w
+  }, [stars])
+
+  const maxMass = Math.max(domainMass.X, domainMass.Y, domainMass.Z, 1)
+
+  // 글로우 텍스처
+  const glowTex = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 128
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')!
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+    g.addColorStop(0, 'rgba(255,255,255,0.4)')
+    g.addColorStop(0.3, 'rgba(255,255,255,0.12)')
+    g.addColorStop(0.6, 'rgba(255,255,255,0.03)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 128, 128)
+    return new THREE.CanvasTexture(canvas)
+  }, [])
+
+  return (
+    <>
+      {(['X', 'Y', 'Z'] as Domain[]).map(d => {
+        const ratio = domainMass[d] / maxMass
+        const [cx, cy, cz] = DOMAIN_CENTER[d]
+        // 크기: 기본 1 + mass 비례 최대 5
+        const size = 1 + ratio * 4
+        // 밝기: mass 없으면 거의 안 보임
+        const opacity = domainMass[d] === 0
+          ? 0.01
+          : 0.03 + ratio * 0.1
+
+        return (
+          <sprite key={d} position={[cx, cy, cz]} scale={[size, size, 1]}>
+            <spriteMaterial
+              map={glowTex}
+              color={COLORS[d]}
+              transparent
+              opacity={opacity}
+              blending={THREE.AdditiveBlending}
+              depthWrite={false}
+            />
+          </sprite>
+        )
+      })}
+    </>
+  )
+}
+
 // ── Nebula particles ──────────────────────────────
-function NebulaParticles({ starCount }: { starCount: number }) {
+// 도메인별 누적 mass에 비례해 해당 영역 성운이 밝아짐
+function NebulaParticles({ stars }: { stars: Star[] }) {
   const ref = useRef<THREE.Points>(null)
 
+  // 도메인별 절대 mass + 비율
+  const domainMass = useMemo(() => {
+    const w = { X: 0, Y: 0, Z: 0 }
+    stars.forEach(s => { w[s.domain] += s.mass })
+    return w
+  }, [stars])
+
+  const totalMass = domainMass.X + domainMass.Y + domainMass.Z
+
   const { positions, colors } = useMemo(() => {
-    const count = 600
-    const pos = new Float32Array(count * 3)
-    const col = new Float32Array(count * 3)
     const dc = {
       X: new THREE.Color('#7ec8e3'),
       Y: new THREE.Color('#ddd8b0'),
       Z: new THREE.Color('#f0a870'),
     }
     const domains: Domain[] = ['X', 'Y', 'Z']
+    const maxMass = Math.max(domainMass.X, domainMass.Y, domainMass.Z, 1)
 
-    for (let i = 0; i < count; i++) {
-      const d = domains[i % 3]
+    // 파티클 수를 도메인별 mass에 비례 배분
+    // 기본 30개 + mass 비례 최대 250개 per domain
+    const BASE = 30
+    const perDomain = domains.map(d => {
+      const ratio = domainMass[d] / maxMass
+      return BASE + Math.round(ratio * 250)
+    })
+    const total = perDomain[0] + perDomain[1] + perDomain[2]
+
+    const pos = new Float32Array(total * 3)
+    const col = new Float32Array(total * 3)
+    let idx = 0
+
+    for (let di = 0; di < 3; di++) {
+      const d = domains[di]
+      const count = perDomain[di]
+      const ratio = domainMass[d] / maxMass
       const [cx, cy, cz] = DOMAIN_CENTER[d]
-      pos[i * 3] = cx + (Math.random() - 0.5) * 14
-      pos[i * 3 + 1] = cy + (Math.random() - 0.5) * 10
-      pos[i * 3 + 2] = cz + (Math.random() - 0.5) * 14
+
+      // 많이 던진 영역 = 밀집 + 밝음, 안 던진 영역 = 넓게 퍼짐 + 어두움
+      const spread = 14 - ratio * 8
+      const brightness = 0.2 + ratio * 0.8
       const c = dc[d]
-      col[i * 3] = c.r
-      col[i * 3 + 1] = c.g
-      col[i * 3 + 2] = c.b
+
+      for (let i = 0; i < count; i++) {
+        pos[idx * 3] = cx + (Math.random() - 0.5) * spread
+        pos[idx * 3 + 1] = cy + (Math.random() - 0.5) * (spread * 0.6)
+        pos[idx * 3 + 2] = cz + (Math.random() - 0.5) * spread
+        col[idx * 3] = c.r * brightness
+        col[idx * 3 + 1] = c.g * brightness
+        col[idx * 3 + 2] = c.b * brightness
+        idx++
+      }
     }
     return { positions: pos, colors: col }
-  }, [])
+  }, [domainMass])
 
-  const opacity = Math.min(0.5, 0.15 + starCount * 0.02)
+  const opacity = Math.min(0.5, 0.12 + stars.length * 0.025)
 
   useFrame((state) => {
     if (ref.current) {
@@ -537,29 +721,48 @@ function Scene() {
   const stars = useStarStore(s => s.stars)
   const { positions, anchorIds } = useMemo(() => computeLayout(stars), [stars])
 
+  // 전체에서 가장 무거운 별 (근본 고민)
+  const heaviestStarId = useMemo(() => {
+    if (stars.length === 0) return null
+    return stars.reduce((a, b) => a.mass > b.mass ? a : b).id
+  }, [stars])
+
+  // Shared refs for gravity line tracking
+  const planetRefs = useRef<Map<string, THREE.Group>>(new Map())
+  const handleGroupRef = useCallback((id: string, ref: THREE.Group | null) => {
+    if (ref) planetRefs.current.set(id, ref)
+    else planetRefs.current.delete(id)
+  }, [])
+
   return (
     <>
-      {/* Directional light for planet shading */}
       <directionalLight position={[5, 8, 5]} intensity={0.6} color="#ffffff" />
       <ambientLight intensity={0.08} />
 
-      <NebulaParticles starCount={stars.length} />
-      <GravityLines stars={stars} positions={positions} anchorIds={anchorIds} />
+      <NebulaParticles stars={stars} />
+      <NebulaClouds stars={stars} />
+      <GravityLines stars={stars} anchorIds={anchorIds} planetRefs={planetRefs} />
 
       {stars.map(star => {
         const p = positions.get(star.id)
         if (!p) return null
+        const anchor = star.orbitParent ? positions.get(star.orbitParent) : undefined
         return (
           <PlanetMesh
             key={star.id}
             star={star}
             pos={p}
             isAnchor={anchorIds.has(star.id)}
+            anchorPos={anchor}
+            onGroupRef={handleGroupRef}
+            isHeaviestAnchor={star.id === heaviestStarId}
           />
         )
       })}
 
       <FlyingStars />
+
+      <CameraGravity stars={stars} />
 
       <OrbitControls
         enablePan={false}
@@ -575,6 +778,47 @@ function Scene() {
       />
     </>
   )
+}
+
+// ── Camera Gravity — 가장 무거운 영역으로 시선이 끌림 ──
+function CameraGravity({ stars }: { stars: Star[] }) {
+  const heaviestCenter = useMemo(() => {
+    if (stars.length === 0) return new THREE.Vector3(0, 1, -1)
+
+    const mass: Record<Domain, number> = { X: 0, Y: 0, Z: 0 }
+    stars.forEach(s => { mass[s.domain] += s.mass })
+    const total = mass.X + mass.Y + mass.Z
+    if (total === 0) return new THREE.Vector3(0, 1, -1)
+
+    // 가중 평균 위치
+    const wx = mass.X / total
+    const wy = mass.Y / total
+    const wz = mass.Z / total
+
+    const [xx, xy, xz] = DOMAIN_CENTER.X
+    const [yx, yy, yz] = DOMAIN_CENTER.Y
+    const [zx, zy, zz] = DOMAIN_CENTER.Z
+
+    return new THREE.Vector3(
+      xx * wx + yx * wy + zx * wz,
+      xy * wx + yy * wy + zy * wz,
+      xz * wx + yz * wy + zz * wz,
+    )
+  }, [stars])
+
+  const targetRef = useRef(new THREE.Vector3(0, 1, -1))
+
+  useFrame(({ camera }) => {
+    // 부드럽게 이동 (lerp)
+    targetRef.current.lerp(heaviestCenter, 0.005)
+
+    // OrbitControls가 있으면 그쪽 target은 건드리지 않고
+    // 카메라 lookAt 방향만 살짝 영향
+    const offset = targetRef.current.clone().sub(new THREE.Vector3(0, 1, -1)).multiplyScalar(0.3)
+    camera.position.x += (offset.x - camera.position.x * 0.01) * 0.002
+  })
+
+  return null
 }
 
 // ── StarField (exported) ──────────────────────────

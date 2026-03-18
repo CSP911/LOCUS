@@ -41,6 +41,7 @@ export interface Weight {
 export interface Star {
   id: string
   text: string
+  question?: string        // 던질 때의 화두 질문
   domain: Domain
   weight?: Weight
   intensity: number        // 0.0 ~ 1.0 (시각화용)

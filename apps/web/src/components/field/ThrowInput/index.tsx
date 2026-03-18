@@ -13,9 +13,53 @@
  * - AI 분류 API 연동
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useStarStore } from '@/store/starStore'
 import { QUESTIONS } from '@/lib/questions'
+
+// ── Dev 테스트 샘플 ──────────────────────────────
+const TEST_SAMPLES = [
+  // X (기반) — 12개
+  '요즘 잠을 너무 못 잔다',
+  '운동을 또 빼먹었다',
+  '밥을 대충 때우고 있다',
+  '몸이 계속 무겁다',
+  '아침에 일어나기가 너무 힘들다',
+  '정리를 해야 하는데 못 하고 있다',
+  '피곤한데 쉴 수가 없다',
+  '몸이 보내는 신호를 무시하고 있다',
+  '또 커피로 버텼다',
+  '운동 안 한 지 한 달 됐다',
+  '잠들기 전에 생각이 너무 많다',
+  '아파도 병원을 안 가고 있다',
+  // Y (성과) — 12개
+  '마감이 아직도 안 끝났다',
+  '상사가 또 무시하는 느낌',
+  '발표 준비가 계속 걸린다',
+  '야근이 매번 반복된다',
+  '실수한 게 자꾸 떠오른다',
+  '인정받지 못하는 느낌이 든다',
+  '할 일이 계속 밀린다',
+  '집중이 안 된다',
+  '회의에서 말을 못 했다',
+  '성과가 안 나온다',
+  '이 일이 맞는 건지 모르겠다',
+  '또 야근인데 끝이 안 보인다',
+  // Z (관계) — 8개
+  '친구한테 연락을 못 하고 있다',
+  '혼자 있는 시간이 너무 많다',
+  '가족한테 신경을 못 쓰고 있다',
+  '괜히 그 사람한테 화를 냈다',
+  '대화가 점점 줄고 있다',
+  '사람 만나는 게 귀찮아졌다',
+  '외롭다는 걸 인정하기 싫다',
+  '연락이 와도 답을 안 하고 있다',
+  // 공통 (무거운 것들) — 4개
+  '아직도 그 말이 머릿속에 맴돈다',
+  '뭔가 계속 찜찜하다',
+  '이유 없이 불안하다',
+  '뭘 해야 할지 모르겠다',
+]
 
 const DOMAIN_COLORS = {
   X: 'var(--color-foundation)',
@@ -33,10 +77,11 @@ export function ThrowInput() {
     const trimmed = text.trim()
     if (!trimmed || throwingRef.current) return
     throwingRef.current = true
+    const currentQuestion = QUESTIONS[qIndex]
     setText('')
     setQIndex(i => (i + 1) % QUESTIONS.length)
     try {
-      await throwStar(trimmed)
+      await throwStar(trimmed, currentQuestion)
     } finally {
       throwingRef.current = false
     }
@@ -48,6 +93,20 @@ export function ThrowInput() {
       handleThrow()
     }
   }
+
+  // Dev: 샘플 일괄 입력
+  const [seeding, setSeeding] = useState(false)
+  const handleSeed = useCallback(async () => {
+    if (seeding) return
+    setSeeding(true)
+    for (let i = 0; i < TEST_SAMPLES.length; i++) {
+      const q = QUESTIONS[i % QUESTIONS.length]
+      await throwStar(TEST_SAMPLES[i], q)
+      // API rate limit 방지 — 간격 두고 던짐
+      await new Promise(r => setTimeout(r, 1500))
+    }
+    setSeeding(false)
+  }, [seeding, throwStar])
 
   return (
     <div className="absolute bottom-0 left-0 right-0 px-4 py-3"
@@ -98,6 +157,22 @@ export function ThrowInput() {
             {d === 'X' ? '기반' : d === 'Y' ? '성과' : '관계'}
           </span>
         ))}
+
+        {/* Dev: 샘플 채우기 버튼 */}
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            onClick={handleSeed}
+            disabled={seeding}
+            className="text-xs ml-2 px-2 py-0.5 rounded"
+            style={{
+              color: 'rgba(255,255,255,0.25)',
+              border: '0.5px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            {seeding ? `채우는 중...` : 'DEV: 샘플 채우기'}
+          </button>
+        )}
+
         <span className="ml-auto text-xs" style={{ color: 'rgba(255,255,255,0.15)' }}>
           {text.length}/30
         </span>
