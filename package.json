@@ -11,7 +11,8 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "debate": "npx tsx scripts/debate.ts"
   },
   "devDependencies": {
     "turbo": "^1.13.0",

@@ -633,10 +633,24 @@ function NebulaParticles({ stars }: { stars: Star[] }) {
 
   const opacity = Math.min(0.5, 0.12 + stars.length * 0.025)
 
-  useFrame((state) => {
+  // 던질 때 성운 출렁임
+  const shakeRef = useNebulaShake()
+
+  useFrame((state, delta) => {
     if (ref.current) {
       ref.current.rotation.y = state.clock.elapsedTime * 0.008
       ref.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.005) * 0.02
+
+      // 출렁임 감쇠
+      if (shakeRef.current > 0.01) {
+        shakeRef.current *= 0.97
+        const s = shakeRef.current
+        ref.current.position.x = Math.sin(state.clock.elapsedTime * 8) * s * 0.15
+        ref.current.position.y = Math.cos(state.clock.elapsedTime * 6) * s * 0.1
+      } else {
+        ref.current.position.x = 0
+        ref.current.position.y = 0
+      }
     }
   })
 
@@ -656,6 +670,176 @@ function NebulaParticles({ stars }: { stars: Star[] }) {
         sizeAttenuation
       />
     </points>
+  )
+}
+
+// ── B) Throw Ripple — 던질 때 공간 전체가 반응 ─────
+// 던지면 해당 도메인 중심에서 빛 파동이 퍼져나간다.
+// 무거운 걸 던지면 더 크고 느리게, 가벼우면 작고 빠르게.
+function ThrowRipple() {
+  const lastDomain = useStarStore(s => s.lastThrowDomain)
+  const lastTime = useStarStore(s => s.lastThrowTime)
+  const ringRef = useRef<THREE.Mesh>(null)
+  const progressRef = useRef(1) // 1 = idle
+
+  // 새 던지기 감지
+  const lastTimeRef = useRef(0)
+  useEffect(() => {
+    if (lastTime > lastTimeRef.current && lastDomain) {
+      lastTimeRef.current = lastTime
+      progressRef.current = 0 // 애니메이션 시작
+    }
+  }, [lastTime, lastDomain])
+
+  const color = useMemo(
+    () => new THREE.Color(lastDomain ? COLORS[lastDomain] : '#ffffff'),
+    [lastDomain],
+  )
+
+  useFrame((_, delta) => {
+    if (!ringRef.current || progressRef.current >= 1) {
+      if (ringRef.current) ringRef.current.visible = false
+      return
+    }
+
+    progressRef.current = Math.min(1, progressRef.current + delta * 0.6)
+    const t = progressRef.current
+    const ease = 1 - Math.pow(1 - t, 2)
+
+    ringRef.current.visible = true
+    ringRef.current.scale.setScalar(0.5 + ease * 6)
+    const mat = ringRef.current.material as THREE.MeshBasicMaterial
+    mat.opacity = (1 - t) * 0.15
+    mat.color = color
+
+    if (lastDomain) {
+      const [cx, cy, cz] = DOMAIN_CENTER[lastDomain]
+      ringRef.current.position.set(cx, cy, cz)
+    }
+  })
+
+  return (
+    <mesh ref={ringRef} visible={false} rotation={[-Math.PI / 2, 0, 0]}>
+      <ringGeometry args={[0.8, 1.0, 64]} />
+      <meshBasicMaterial
+        color="#ffffff"
+        transparent
+        opacity={0}
+        side={THREE.DoubleSide}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
+    </mesh>
+  )
+}
+
+// ── Nebula Shockwave — 성운 파티클이 흔들림 ─────────
+// ThrowRipple과 함께, 던질 때 성운 전체가 미세하게 출렁인다.
+function useNebulaShake() {
+  const lastTime = useStarStore(s => s.lastThrowTime)
+  const shakeRef = useRef(0)
+  const lastTimeRef = useRef(0)
+
+  useEffect(() => {
+    if (lastTime > lastTimeRef.current) {
+      lastTimeRef.current = lastTime
+      shakeRef.current = 1.0
+    }
+  }, [lastTime])
+
+  return shakeRef
+}
+
+// ── C) Mass Signature — 조감 뷰에서 보이는 나의 형상 ──
+// 줌아웃하면(카메라 거리 15+) 성운 전체를 감싸는
+// X/Y/Z 에너지 흐름선이 나타난다. 무게 중심이 기울어진
+// 방향으로 흐름이 쏠려 있어서 "내 형상"이 드러남.
+function MassSignature({ stars }: { stars: Star[] }) {
+  const groupRef = useRef<THREE.Group>(null)
+
+  const { massX, massY, massZ, total } = useMemo(() => {
+    let mx = 0, my = 0, mz = 0
+    stars.forEach(s => {
+      if (s.domain === 'X') mx += s.mass
+      else if (s.domain === 'Y') my += s.mass
+      else mz += s.mass
+    })
+    return { massX: mx, massY: my, massZ: mz, total: mx + my + mz }
+  }, [stars])
+
+  // 에너지 흐름 곡선 — 각 도메인 방향으로 뻗는 선
+  const curves = useMemo(() => {
+    if (total === 0) return []
+    const maxM = Math.max(massX, massY, massZ, 1)
+
+    return (['X', 'Y', 'Z'] as Domain[]).map(d => {
+      const m = d === 'X' ? massX : d === 'Y' ? massY : massZ
+      const ratio = m / maxM
+      const [cx, cy, cz] = DOMAIN_CENTER[d]
+      const reach = 0.5 + ratio * 1.5 // 무거울수록 멀리 뻗음
+
+      // 곡선: 중심 → 도메인 방향으로 3개 제어점
+      const points: [number, number, number][] = []
+      const steps = 20
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const ease = t * t * (3 - 2 * t) // smoothstep
+        points.push([
+          cx * ease * reach,
+          cy * ease * reach,
+          cz * ease * reach,
+        ])
+      }
+
+      return { domain: d, points, ratio }
+    })
+  }, [massX, massY, massZ, total])
+
+  // 투명도 — 줌아웃할수록 선명, 가까이서는 안 보임
+  const opacityRef = useRef(0)
+
+  useFrame(({ camera }) => {
+    if (!groupRef.current) return
+    const dist = camera.position.length()
+    // 15 이상에서 보이기 시작, 20에서 최대
+    const targetOpacity = dist > 15 ? Math.min(1, (dist - 15) / 5) : 0
+    opacityRef.current += (targetOpacity - opacityRef.current) * 0.05
+    groupRef.current.visible = opacityRef.current > 0.01
+
+    // 느린 회전
+    groupRef.current.rotation.y += 0.001
+  })
+
+  if (total === 0) return null
+
+  return (
+    <group ref={groupRef} visible={false}>
+      {curves.map(({ domain, points, ratio }) => (
+        <Line
+          key={domain}
+          points={points}
+          color={COLORS[domain]}
+          transparent
+          opacity={ratio * 0.3 * opacityRef.current}
+          lineWidth={1 + ratio * 2}
+        />
+      ))}
+
+      {/* 중심점 — 무게 중심 위치 */}
+      <mesh position={[
+        (DOMAIN_CENTER.X[0] * massX + DOMAIN_CENTER.Y[0] * massY + DOMAIN_CENTER.Z[0] * massZ) / (total || 1) * 0.5,
+        (DOMAIN_CENTER.X[1] * massX + DOMAIN_CENTER.Y[1] * massY + DOMAIN_CENTER.Z[1] * massZ) / (total || 1) * 0.5,
+        (DOMAIN_CENTER.X[2] * massX + DOMAIN_CENTER.Y[2] * massY + DOMAIN_CENTER.Z[2] * massZ) / (total || 1) * 0.5,
+      ]}>
+        <sphereGeometry args={[0.08, 16, 16]} />
+        <meshBasicMaterial
+          color="#ffffff"
+          transparent
+          opacity={0.2 * opacityRef.current}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+    </group>
   )
 }
 
@@ -761,6 +945,8 @@ function Scene() {
       })}
 
       <FlyingStars />
+      <ThrowRipple />
+      <MassSignature stars={stars} />
 
       <CameraGravity stars={stars} />
 
@@ -771,7 +957,7 @@ function Scene() {
         autoRotate
         autoRotateSpeed={0.2}
         minDistance={4}
-        maxDistance={22}
+        maxDistance={30}
         zoomSpeed={0.5}
         dampingFactor={0.05}
         enableDamping

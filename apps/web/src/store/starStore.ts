@@ -20,6 +20,8 @@ interface ClassifyResponse {
 interface StarStore {
   stars: Star[]
   flying: FlyingStar[]
+  lastThrowDomain: Domain | null   // 마지막 던진 도메인 (공간 반응용)
+  lastThrowTime: number            // 마지막 던진 시각 (ms)
   throwStar: (text: string, question?: string) => Promise<void>
   addStar: (star: Star) => void
   clearFlying: (id: string) => void
@@ -135,6 +137,8 @@ function recalcAnchors(stars: Star[]): Star[] {
 export const useStarStore = create<StarStore>((set, get) => ({
   stars: [],
   flying: [],
+  lastThrowDomain: null,
+  lastThrowTime: 0,
 
   throwStar: async (text: string, question?: string) => {
     const id = crypto.randomUUID()
@@ -154,9 +158,13 @@ export const useStarStore = create<StarStore>((set, get) => ({
 
     const { domain, intensity, direction, nature } = data
 
-    // 2) Flying state
+    // 2) Flying state + 공간 반응 트리거
     const flyingStar: FlyingStar = { id, text, domain, progress: 0 }
-    set(s => ({ flying: [...s.flying, flyingStar] }))
+    set(s => ({
+      flying: [...s.flying, flyingStar],
+      lastThrowDomain: domain,
+      lastThrowTime: Date.now(),
+    }))
 
     // 3) Land after animation
     setTimeout(() => {
