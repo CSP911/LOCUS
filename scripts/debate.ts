@@ -27,7 +27,7 @@ if (fs.existsSync(envPath)) {
 }
 
 // ── Config ────────────────────────────────────────
-const MODEL = 'claude-haiku-4-5-20251001'
+const MODEL = 'claude-sonnet-4-20250514'
 const DEFAULT_ROUNDS = 5
 const MAX_TOKENS_PER_TURN = 300
 
@@ -53,7 +53,7 @@ function loadPersonas(): Persona[] {
 }
 
 // ── Debate logic ──────────────────────────────────
-async function runDebate(topic: string, rounds: number) {
+async function runDebate(topic: string, rounds: number, filter?: string[] | null) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     console.error('ANTHROPIC_API_KEY not set. Add it to .env.local or export it.')
@@ -61,7 +61,10 @@ async function runDebate(topic: string, rounds: number) {
   }
 
   const client = new Anthropic({ apiKey })
-  const personas = loadPersonas()
+  let personas = loadPersonas()
+  if (filter && filter.length > 0) {
+    personas = personas.filter(p => filter.some(f => p.file.replace('.md', '') === f))
+  }
   const history: { speaker: string; message: string }[] = []
 
   console.log(`\n🌌 LŌCUS Debate`)
@@ -197,11 +200,13 @@ const args = process.argv.slice(2)
 const topic = args.find(a => !a.startsWith('--'))
 const roundsFlag = args.indexOf('--rounds')
 const rounds = roundsFlag !== -1 ? parseInt(args[roundsFlag + 1]) : DEFAULT_ROUNDS
+const personasFlag = args.indexOf('--personas')
+const personaFilter = personasFlag !== -1 ? args[personasFlag + 1]?.split(',') : null
 
 if (!topic) {
-  console.log('Usage: npm run debate "토론 주제" [--rounds N]')
-  console.log('Example: npm run debate "LŌCUS를 매일 쓰게 만드는 핵심 가치는 무엇인가"')
+  console.log('Usage: npm run debate "토론 주제" [--rounds N] [--personas founder,philosopher,...]')
+  console.log('Available personas:', loadPersonas().map(p => p.file.replace('.md', '')).join(', '))
   process.exit(0)
 }
 
-runDebate(topic, rounds)
+runDebate(topic, rounds, personaFilter)
