@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { Star, Domain, Weight, Nature } from '@locus/shared'
 
 // ── Types ─────────────────────────────────────
@@ -20,71 +21,77 @@ interface ClassifyResponse {
 interface StarStore {
   stars: Star[]
   flying: FlyingStar[]
-  lastThrowDomain: Domain | null   // 마지막 던진 도메인 (공간 반응용)
-  lastThrowTime: number            // 마지막 던진 시각 (ms)
+  lastThrowDomain: Domain | null
+  lastThrowTime: number
+
+  // Actions
   throwStar: (text: string, question?: string) => Promise<void>
   addStar: (star: Star) => void
   clearFlying: (id: string) => void
+  resolveStar: (id: string) => void      // 미결→해결
+  unresolveStar: (id: string) => void    // 해결→미결 되돌리기
+
+  // Selectors (computed)
+  getByDomain: (domain: Domain) => Star[]
+  getUnresolved: () => Star[]
+  getByWeight: () => Star[]              // 무게 순 정렬
+  getRepeating: () => Star[]             // 반복 패턴
+  getControllable: () => { in: Star[]; out: Star[] }
 }
 
-// ── A) Mass calculation formula ───────────────
-// mass = intensity × natureMult × directionMult
+// ── Mass calculation ──────────────────────────
 function calculateMass(intensity: number, nature: Nature[], direction: 'in' | 'out'): number {
   let natureMult = 1.0
   if (nature.includes('unresolved') && nature.includes('recurring')) {
-    natureMult = 1.8 // 미결 + 반복 = 가장 무거움
+    natureMult = 1.8
   } else if (nature.includes('unresolved')) {
     natureMult = 1.5
   } else if (nature.includes('recurring')) {
     natureMult = 1.3
   }
-  // onetime = 1.0
-
   const directionMult = direction === 'out' ? 1.2 : 1.0
-
   return Math.round(intensity * natureMult * directionMult * 10) / 10
 }
 
-// ── B) Repeat detection — boost similar stars ─
-// 같은 도메인에서 비슷한 텍스트가 반복 던져지면 기존 별의 mass를 증가시킴
+// ── Repeat detection ──────────────────────────
 function detectAndBoostRepeats(
   stars: Star[],
   newText: string,
   newDomain: Domain,
-): Star[] {
-  const BOOST = 1.5 // 반복 시 기존 별에 추가되는 mass
+): { stars: Star[]; repeatCount: number } {
+  const BOOST = 1.5
+  let maxSimilarity = 0
 
-  // 같은 도메인의 기존 별들과 유사도 체크
-  return stars.map(star => {
+  const boosted = stars.map(star => {
     if (star.domain !== newDomain) return star
-
     const similarity = textSimilarity(star.text, newText)
+    if (similarity > maxSimilarity) maxSimilarity = similarity
     if (similarity < 0.3) return star
 
-    // 유사한 별 발견 → mass 증가 (파급력 증가)
-    const boost = BOOST * similarity
     return {
       ...star,
-      mass: Math.round((star.mass + boost) * 10) / 10,
+      mass: Math.round((star.mass + BOOST * similarity) * 10) / 10,
+      repeatCount: star.repeatCount + 1,
     }
   })
+
+  // 유사 별 개수 = 반복 횟수
+  const similarCount = stars.filter(
+    s => s.domain === newDomain && textSimilarity(s.text, newText) >= 0.3
+  ).length
+
+  return { stars: boosted, repeatCount: similarCount }
 }
 
-// 간단한 한국어 텍스트 유사도 (공통 글자 비율)
 function textSimilarity(a: string, b: string): number {
   if (a === b) return 1.0
-
-  // 2-gram 기반 유사도
   const gramsA = new Set<string>()
   const gramsB = new Set<string>()
   for (let i = 0; i < a.length - 1; i++) gramsA.add(a.slice(i, i + 2))
   for (let i = 0; i < b.length - 1; i++) gramsB.add(b.slice(i, i + 2))
-
   if (gramsA.size === 0 || gramsB.size === 0) return 0
-
   let common = 0
   gramsA.forEach(g => { if (gramsB.has(g)) common++ })
-
   return common / Math.max(gramsA.size, gramsB.size)
 }
 
@@ -115,96 +122,134 @@ function classifyLocal(text: string): ClassifyResponse {
   intensity = Math.min(5, intensity)
 
   const direction = /상사|환경|날씨|타인|남|걔/.test(text) ? 'out' as const : 'in' as const
-
   return { domain, intensity, direction, nature, method: 'keyword' }
 }
 
-// ── Anchor / orbit recalculation ──────────────
+// ── Anchor recalculation ──────────────────────
 function recalcAnchors(stars: Star[]): Star[] {
   const byDomain: Record<Domain, Star[]> = { X: [], Y: [], Z: [] }
   stars.forEach(s => byDomain[s.domain].push(s))
-
   return stars.map(star => {
     const group = byDomain[star.domain]
     const heaviest = group.reduce((a, b) => a.mass > b.mass ? a : b, group[0])
-    const isAnchor = star.id === heaviest.id
-    const orbitParent = isAnchor ? null : heaviest.id
-    return { ...star, isAnchor, orbitParent }
+    return { ...star, isAnchor: star.id === heaviest.id, orbitParent: star.id === heaviest.id ? null : heaviest.id }
   })
 }
 
-// ── Store ─────────────────────────────────────
-export const useStarStore = create<StarStore>((set, get) => ({
-  stars: [],
-  flying: [],
-  lastThrowDomain: null,
-  lastThrowTime: 0,
+// ── Store with localStorage persistence ───────
+export const useStarStore = create<StarStore>()(
+  persist(
+    (set, get) => ({
+      stars: [],
+      flying: [],
+      lastThrowDomain: null,
+      lastThrowTime: 0,
 
-  throwStar: async (text: string, question?: string) => {
-    const id = crypto.randomUUID()
+      throwStar: async (text: string, question?: string) => {
+        const id = crypto.randomUUID()
 
-    // 1) Classify via API, fallback to local
-    let data: ClassifyResponse
-    try {
-      const res = await fetch('/api/classify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      data = await res.json()
-    } catch {
-      data = classifyLocal(text)
-    }
+        let data: ClassifyResponse
+        try {
+          const res = await fetch('/api/classify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          })
+          data = await res.json()
+        } catch {
+          data = classifyLocal(text)
+        }
 
-    const { domain, intensity, direction, nature } = data
+        const { domain, intensity, direction, nature } = data
 
-    // 2) Flying state + 공간 반응 트리거
-    const flyingStar: FlyingStar = { id, text, domain, progress: 0 }
-    set(s => ({
-      flying: [...s.flying, flyingStar],
-      lastThrowDomain: domain,
-      lastThrowTime: Date.now(),
-    }))
+        const flyingStar: FlyingStar = { id, text, domain, progress: 0 }
+        set(s => ({
+          flying: [...s.flying, flyingStar],
+          lastThrowDomain: domain,
+          lastThrowTime: Date.now(),
+        }))
 
-    // 3) Land after animation
-    setTimeout(() => {
-      // A) 복합 mass 공식
-      const mass = calculateMass(intensity, nature, direction)
-      const normIntensity = Math.min(1, Math.max(0.1, intensity / 5))
+        setTimeout(() => {
+          const mass = calculateMass(intensity, nature, direction)
+          const normIntensity = Math.min(1, Math.max(0.1, intensity / 5))
 
-      const weight: Weight = {
-        domain,
-        intensity: Math.round(intensity) as 1 | 2 | 3 | 4 | 5,
-        direction,
-        nature,
-      }
+          const weight: Weight = {
+            domain,
+            intensity: Math.round(intensity) as 1 | 2 | 3 | 4 | 5,
+            direction,
+            nature,
+          }
 
-      const star: Star = {
-        id,
-        text,
-        question,
-        domain,
-        weight,
-        intensity: normIntensity,
-        mass,
-        createdAt: new Date().toISOString(),
-        isAnchor: false,
-        orbitParent: null,
-      }
+          // 반복 감지
+          const { stars: boostedStars, repeatCount } = detectAndBoostRepeats(get().stars, text, domain)
 
-      // B) 반복 감지 — 기존 유사 별의 mass 증가
-      const boostedStars = detectAndBoostRepeats(get().stars, text, domain)
-      const updated = recalcAnchors([...boostedStars, star])
-      set({ stars: updated })
-      get().clearFlying(id)
-    }, 1200)
-  },
+          const star: Star = {
+            id,
+            text,
+            question,
+            domain,
+            weight,
+            intensity: normIntensity,
+            mass,
+            createdAt: new Date().toISOString(),
+            resolved: false,
+            repeatCount,
+            isAnchor: false,
+            orbitParent: null,
+          }
 
-  addStar: (star: Star) => {
-    const updated = recalcAnchors([...get().stars, star])
-    set({ stars: updated })
-  },
+          const updated = recalcAnchors([...boostedStars, star])
+          set({ stars: updated })
+          get().clearFlying(id)
+        }, 1200)
+      },
 
-  clearFlying: (id: string) =>
-    set(s => ({ flying: s.flying.filter(f => f.id !== id) })),
-}))
+      addStar: (star: Star) => {
+        const updated = recalcAnchors([...get().stars, star])
+        set({ stars: updated })
+      },
+
+      clearFlying: (id: string) =>
+        set(s => ({ flying: s.flying.filter(f => f.id !== id) })),
+
+      resolveStar: (id: string) =>
+        set(s => ({
+          stars: s.stars.map(star =>
+            star.id === id ? { ...star, resolved: true } : star
+          ),
+        })),
+
+      unresolveStar: (id: string) =>
+        set(s => ({
+          stars: s.stars.map(star =>
+            star.id === id ? { ...star, resolved: false } : star
+          ),
+        })),
+
+      // ── Selectors ───────────────────────────
+      getByDomain: (domain: Domain) =>
+        get().stars.filter(s => s.domain === domain),
+
+      getUnresolved: () =>
+        get().stars.filter(s =>
+          !s.resolved && s.weight?.nature.includes('unresolved')
+        ),
+
+      getByWeight: () =>
+        [...get().stars].sort((a, b) => b.mass - a.mass),
+
+      getRepeating: () =>
+        get().stars.filter(s => s.repeatCount > 0 || s.weight?.nature.includes('recurring')),
+
+      getControllable: () => ({
+        in: get().stars.filter(s => s.weight?.direction === 'in'),
+        out: get().stars.filter(s => s.weight?.direction === 'out'),
+      }),
+    }),
+    {
+      name: 'locus-stars',
+      // flying, lastThrow는 영속화하지 않음
+      partialize: (state) => ({ stars: state.stars }),
+    },
+  ),
+)

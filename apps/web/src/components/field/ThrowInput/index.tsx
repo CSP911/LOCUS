@@ -13,7 +13,7 @@
  * - AI 분류 API 연동
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, TouchEvent } from 'react'
 import { useStarStore } from '@/store/starStore'
 import { QUESTIONS } from '@/lib/questions'
 
@@ -98,6 +98,23 @@ export function ThrowInput() {
     }
   }
 
+  // Swipe to throw
+  const touchStartY = useRef(0)
+  const [swiping, setSwiping] = useState(false)
+
+  const handleTouchStart = (e: TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY
+  }
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    const deltaY = touchStartY.current - e.changedTouches[0].clientY
+    // 50px 이상 위로 스와이프하면 던지기
+    if (deltaY > 50 && text.trim()) {
+      setSwiping(true)
+      handleThrow().then(() => setSwiping(false))
+    }
+  }
+
   // Dev: 샘플 일괄 입력
   const [seeding, setSeeding] = useState(false)
   const handleSeed = useCallback(async () => {
@@ -113,14 +130,30 @@ export function ThrowInput() {
   }, [seeding, throwStar])
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 px-4 py-3"
-      style={{ background: 'rgba(4,6,13,0.92)', borderTop: '0.5px solid rgba(255,255,255,0.07)' }}>
+    <div
+      className="absolute bottom-0 left-0 right-0 px-4 py-3"
+      style={{
+        background: 'rgba(4,6,13,0.92)',
+        borderTop: '0.5px solid rgba(255,255,255,0.07)',
+        transform: swiping ? 'translateY(-20px)' : 'translateY(0)',
+        opacity: swiping ? 0.5 : 1,
+        transition: 'transform 0.3s, opacity 0.3s',
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}>
 
-      {/* 화두 질문 */}
-      <p className="text-xs mb-2 transition-opacity duration-300"
-        style={{ color: 'rgba(148,166,212,0.55)' }}>
-        {QUESTIONS[qIndex]}
-      </p>
+      {/* 화두 질문 + 스와이프 힌트 */}
+      <div className="flex justify-between items-center mb-2">
+        <p className="text-xs transition-opacity duration-300"
+          style={{ color: 'rgba(148,166,212,0.55)' }}>
+          {QUESTIONS[qIndex]}
+        </p>
+        {text.trim() && (
+          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.12)' }}>
+            ↑ 스와이프로 던지기
+          </span>
+        )}
+      </div>
 
       {/* 입력 영역 */}
       <div className="flex gap-2 items-center">

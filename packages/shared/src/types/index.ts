@@ -45,8 +45,10 @@ export interface Star {
   domain: Domain
   weight?: Weight
   intensity: number        // 0.0 ~ 1.0 (시각화용)
-  mass: number             // intensity * 10 (중력 계산용)
+  mass: number             // 복합 mass (중력 계산용)
   createdAt: string        // ISO 8601
+  resolved: boolean        // 미결→해결 처리 여부
+  repeatCount: number      // 유사 텍스트 반복 횟수
   isAnchor: boolean        // 영역 내 항성 여부
   orbitParent: string | null // 공전 대상 Star id
 }
