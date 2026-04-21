@@ -10,7 +10,7 @@ const API_URL = 'https://locus-api-production-ec46.up.railway.app'
 export async function apiCall<T>(path: string, body: any): Promise<T | null> {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
+    const timeout = setTimeout(() => controller.abort(), 120000)
 
     const res = await fetch(`${API_URL}${path}`, {
       method: 'POST',

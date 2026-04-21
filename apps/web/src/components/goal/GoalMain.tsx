@@ -1,9 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useGoalStore, type Goal } from '@/store/goalStore'
-import { suggestSmall } from '@/lib/classify-client'
-import { apiCall } from '@/lib/api'
+import { useGoalStore, type Goal, type GoalStep } from '@/store/goalStore'
 import type { Domain } from '@locus/shared'
 
 const DOMAIN_COLORS: Record<Domain, string> = {
@@ -13,20 +11,17 @@ const DOMAIN_COLORS: Record<Domain, string> = {
 }
 
 export function GoalMain() {
-  const getTodayGoal = useGoalStore(s => s.getTodayGoal)
-  const todayGoal = getTodayGoal()
+  const getActiveGoal = useGoalStore(s => s.getActiveGoal)
+  const goal = getActiveGoal()
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
-      {/* 상단 여백 */}
       <div className="flex-1" />
-
-      {/* 오늘의 도전과제 — 하나만 */}
       <div className="pointer-events-auto px-4 pb-24">
-        {!todayGoal ? (
+        {!goal ? (
           <EmptyState />
         ) : (
-          <GoalCard key={todayGoal.id} goal={todayGoal} />
+          <GoalCard goal={goal} />
         )}
       </div>
     </div>
@@ -37,214 +32,137 @@ function EmptyState() {
   return (
     <div className="text-center py-4">
       <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>
-        어제의 나를 이길 목표를 던져보세요
+        이기고 싶은 것을 던져보세요
       </p>
     </div>
   )
 }
 
 function GoalCard({ goal }: { goal: Goal }) {
-  const checkIn = useGoalStore(s => s.checkIn)
-  const getTodayRecord = useGoalStore(s => s.getTodayRecord)
-  const getWeekRecords = useGoalStore(s => s.getWeekRecords)
-  const getStreak = useGoalStore(s => s.getStreak)
+  const completeStep = useGoalStore(s => s.completeStep)
+  const completeGoal = useGoalStore(s => s.completeGoal)
 
-  const todayRecord = getTodayRecord(goal.id)
-  const weekRecords = getWeekRecords(goal.id)
-  const streak = getStreak(goal.id)
+  const currentStepData = goal.steps.find(s => s.order === goal.currentStep)
+  const doneCount = goal.steps.filter(s => s.done).length
+  const totalSteps = goal.steps.length
+  const allDone = doneCount === totalSteps && totalSteps > 0
 
-  const [showSmall, setShowSmall] = useState(false)
-  const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
-  const [smallSuggestion, setSmallSuggestion] = useState<string | null>(null)
-  const [loadingSuggestion, setLoadingSuggestion] = useState(false)
 
-  const winsThisWeek = weekRecords.filter(r => r.achieved).length
+  function handleStepDone(step: GoalStep) {
+    completeStep(goal.id, step.order)
 
-  // 못 했을 때 작은 버전 제안 (서버 우선, fallback 클라이언트)
-  async function fetchSmallSuggestion() {
-    setLoadingSuggestion(true)
-    const serverResult = await apiCall<{ suggestion: string }>('/suggest-small', { goal: goal.text })
-    if (serverResult?.suggestion) {
-      setSmallSuggestion(serverResult.suggestion)
+    if (step.order === totalSteps) {
+      // 마지막 단계 완료
+      setFeedbackMessage('전부 해냈어요!')
+      setTimeout(() => setFeedbackMessage(null), 3000)
     } else {
-      setSmallSuggestion(suggestSmall(goal.text))
+      setFeedbackMessage(`${step.order}단계 완료. 다음은 언제든 준비되면.`)
+      setTimeout(() => setFeedbackMessage(null), 3000)
     }
-    setLoadingSuggestion(false)
-  }
-
-  function handleNotDone() {
-    setShowSmall(true)
-    fetchSmallSuggestion()
-  }
-
-  function handleSmallDone() {
-    // 작은 버전 했다 → "얼마나 했어요?" 물어보기
-    setShowSmall(false)
-    setShowFeedback(true)
-  }
-
-  function handleFeedback(level: 'just' | 'more' | 'much') {
-    const messages: Record<string, string> = {
-      just: '작게라도 한 거예요.',
-      more: '시작이 반이죠. 좋았어요.',
-      much: `${smallSuggestion?.replace(/할까요\?|볼까요\?/g, '').trim()}에서 시작했는데. 대단하네요.`,
-    }
-    checkIn(goal.id, true, `${smallSuggestion} → ${level}`)
-    setFeedbackMessage(messages[level])
-    setShowFeedback(false)
-
-    // 3초 후 메시지 사라짐
-    setTimeout(() => setFeedbackMessage(null), 3500)
   }
 
   function handleSkip() {
-    checkIn(goal.id, false)
-    setShowSmall(false)
+    completeGoal(goal.id)
   }
 
-  // 피드백 질문 단계 ("얼마나 했어요?")
-  if (showFeedback) {
+  // 전부 완료
+  if (allDone) {
     return (
       <div
-        className="rounded-xl px-4 py-3"
+        className="rounded-xl px-4 py-4"
         style={{
-          background: 'rgba(100,200,150,0.04)',
-          border: '0.5px solid rgba(100,200,150,0.12)',
+          background: 'rgba(100,200,150,0.06)',
+          border: '0.5px solid rgba(100,200,150,0.15)',
         }}
       >
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 10 }}>
-          얼마나 했어요?
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleFeedback('just')}
-            className="px-3 py-1.5 rounded-lg text-xs"
-            style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}
-          >
-            딱 그만큼
-          </button>
-          <button
-            onClick={() => handleFeedback('more')}
-            className="px-3 py-1.5 rounded-lg text-xs"
-            style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)' }}
-          >
-            좀 더 했어요
-          </button>
-          <button
-            onClick={() => handleFeedback('much')}
-            className="px-3 py-1.5 rounded-lg text-xs"
-            style={{ background: 'rgba(100,200,150,0.1)', color: 'rgba(100,200,150,0.7)' }}
-          >
-            생각보다 많이!
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // 이미 오늘 체크인 했으면
-  if (todayRecord) {
-    return (
-      <div
-        className="rounded-xl px-4 py-3"
-        style={{
-          background: todayRecord.achieved
-            ? 'rgba(100,200,150,0.06)'
-            : 'rgba(255,255,255,0.02)',
-          border: `0.5px solid ${todayRecord.achieved
-            ? 'rgba(100,200,150,0.15)'
-            : 'rgba(255,255,255,0.05)'}`,
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ background: DOMAIN_COLORS[goal.domain] }} />
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{goal.text}</span>
-          </div>
-          <span style={{
-            color: todayRecord.achieved ? 'rgba(100,200,150,0.7)' : 'rgba(255,255,255,0.2)',
-            fontSize: 11,
-          }}>
-            {todayRecord.achieved ? '오늘 이겼어요' : '내일 다시'}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-2 h-2 rounded-full" style={{ background: DOMAIN_COLORS[goal.domain] }} />
+          <span style={{ color: 'rgba(100,200,150,0.8)', fontSize: 13, fontWeight: 500 }}>
+            {goal.text}
           </span>
         </div>
-        {streak > 1 && (
-          <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: 10, marginTop: 4, marginLeft: 16 }}>
-            {streak}일 연속 🔥
-          </p>
-        )}
-        {/* 피드백 메시지 (3초간) */}
-        {feedbackMessage && (
-          <p style={{
-            color: 'rgba(100,200,150,0.6)',
-            fontSize: 11,
-            marginTop: 6,
-            marginLeft: 16,
-            transition: 'opacity 0.5s',
-          }}>
-            {feedbackMessage}
-          </p>
-        )}
+        <p style={{ color: 'rgba(100,200,150,0.5)', fontSize: 12 }}>
+          {totalSteps}단계 전부 완료. 다음 도전을 던져보세요.
+        </p>
       </div>
     )
   }
 
-  // 아직 체크인 안 했으면
   return (
     <div
-      className="rounded-xl px-4 py-3"
+      className="rounded-xl px-4 py-4"
       style={{
         background: 'rgba(255,255,255,0.03)',
         border: '0.5px solid rgba(255,255,255,0.08)',
       }}
     >
-      {/* 목표 + 주간 통계 */}
+      {/* 목표 + 진행도 */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: DOMAIN_COLORS[goal.domain] }} />
           <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>{goal.text}</span>
         </div>
         <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>
-          이번 주 {winsThisWeek}일 이김
+          {doneCount}/{totalSteps}
         </span>
       </div>
 
-      {/* 작은 버전 제안 */}
-      {showSmall ? (
-        <div className="ml-4">
-          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 8 }}>
-            {loadingSuggestion ? '생각 중...' : smallSuggestion}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSmallDone}
-              disabled={loadingSuggestion}
-              className="px-3 py-1.5 rounded-lg text-xs"
+      {/* 진행 바 */}
+      {totalSteps > 0 && (
+        <div className="flex gap-1 mb-3">
+          {goal.steps.map(step => (
+            <div
+              key={step.order}
+              className="h-1 rounded-full flex-1"
               style={{
-                background: 'rgba(100,200,150,0.1)',
-                border: '0.5px solid rgba(100,200,150,0.2)',
-                color: 'rgba(100,200,150,0.7)',
+                background: step.done
+                  ? 'rgba(100,200,150,0.5)'
+                  : step.order === goal.currentStep
+                    ? 'rgba(255,255,255,0.15)'
+                    : 'rgba(255,255,255,0.05)',
               }}
-            >
-              했어요
-            </button>
-            <button
-              onClick={handleSkip}
-              className="px-3 py-1.5 rounded-lg text-xs"
-              style={{
-                color: 'rgba(255,255,255,0.2)',
-              }}
-            >
-              오늘은 넘길게요
-            </button>
-          </div>
+            />
+          ))}
         </div>
-      ) : (
-        /* 체크인 버튼 */
-        <div className="flex gap-2 ml-4">
+      )}
+
+      {/* 단계 리스트 */}
+      <div className="flex flex-col gap-1.5 mb-3">
+        {goal.steps.map(step => (
+          <div
+            key={step.order}
+            className="flex items-center gap-2"
+            style={{
+              opacity: step.done ? 0.4 : step.order === goal.currentStep ? 1 : 0.3,
+            }}
+          >
+            {step.done ? (
+              <span style={{ color: 'rgba(100,200,150,0.6)', fontSize: 11 }}>✓</span>
+            ) : (
+              <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>{step.order}</span>
+            )}
+            <span style={{
+              color: step.done ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)',
+              fontSize: 12,
+              textDecoration: step.done ? 'line-through' : 'none',
+            }}>
+              {step.text}
+            </span>
+            {!step.done && step.order === goal.currentStep && (
+              <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: 9, marginLeft: 'auto' }}>
+                {step.checkinTime}시
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* 현재 단계 버튼 */}
+      {currentStepData && !currentStepData.done && (
+        <div className="flex gap-2 mt-1">
           <button
-            onClick={() => checkIn(goal.id, true)}
+            onClick={() => handleStepDone(currentStepData)}
             className="px-3 py-1.5 rounded-lg text-xs"
             style={{
               background: 'rgba(100,200,150,0.1)',
@@ -255,17 +173,20 @@ function GoalCard({ goal }: { goal: Goal }) {
             했어요 ✓
           </button>
           <button
-            onClick={handleNotDone}
+            onClick={handleSkip}
             className="px-3 py-1.5 rounded-lg text-xs"
-            style={{
-              background: 'rgba(255,200,100,0.06)',
-              border: '0.5px solid rgba(255,200,100,0.12)',
-              color: 'rgba(255,200,100,0.5)',
-            }}
+            style={{ color: 'rgba(255,255,255,0.2)' }}
           >
-            아직 못 했어요
+            오늘은 넘길게요
           </button>
         </div>
+      )}
+
+      {/* 피드백 메시지 */}
+      {feedbackMessage && (
+        <p style={{ color: 'rgba(100,200,150,0.6)', fontSize: 11, marginTop: 8 }}>
+          {feedbackMessage}
+        </p>
       )}
     </div>
   )

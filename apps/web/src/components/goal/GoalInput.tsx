@@ -3,24 +3,48 @@
 import { useState, useRef } from 'react'
 import { useGoalStore } from '@/store/goalStore'
 import { useStarStore } from '@/store/starStore'
-import { classifyText } from '@/lib/classify-client'
 import { apiCall } from '@/lib/api'
 import { scheduleCheckinNotifications } from '@/lib/notifications'
 import type { Domain } from '@locus/shared'
+
+interface ProcessGoalResponse {
+  goal: {
+    original: string
+    needsClarification: boolean
+    clarifyQuestion: string | null
+    refined: string | null
+  }
+  classification: {
+    domain: Domain
+    intensity: number
+    direction: 'in' | 'out'
+    nature: string[]
+  } | null
+  support: {
+    smallVersion: string
+    steps: string[]
+  } | null
+  checkinTimes: number[] | null
+  checkinMessages: {
+    midday: string
+    evening: string
+  } | null
+}
 
 export function GoalInput() {
   const [text, setText] = useState('')
   const [clarifyQuestion, setClarifyQuestion] = useState<string | null>(null)
   const [originalGoal, setOriginalGoal] = useState('')
   const [loading, setLoading] = useState(false)
+  const [goalData, setGoalData] = useState<ProcessGoalResponse | null>(null)
 
   const addGoal = useGoalStore(s => s.addGoal)
-  const hasTodayGoal = useGoalStore(s => s.hasTodayGoal)
+  const hasActiveGoal = useGoalStore(s => s.hasActiveGoal)
   const throwBall = useGoalStore(s => s.throwBall)
   const throwStar = useStarStore(s => s.throwStar)
   const addingRef = useRef(false)
 
-  const todayHasGoal = hasTodayGoal()
+  const hasActive = hasActiveGoal()
 
   const handleSubmit = async () => {
     const trimmed = text.trim()
@@ -28,48 +52,72 @@ export function GoalInput() {
     addingRef.current = true
     setLoading(true)
 
-    if (clarifyQuestion) {
-      // 되묻기에 대한 답변 — 구체화된 목표로 등록
-      const fullGoal = `${originalGoal} — ${trimmed}`
-      await registerGoal(fullGoal)
-      setClarifyQuestion(null)
-      setOriginalGoal('')
-    } else {
-      // 첫 입력 — 모호한지 확인
-      const result = await apiCall<{ needsClarification: boolean; question?: string }>(
-        '/clarify-goal', { goal: trimmed }
-      )
+    try {
+      if (clarifyQuestion) {
+        // 2차 호출 — 구체화 답변 포함. 되묻기는 최대 1번.
+        const result = await apiCall<ProcessGoalResponse>(
+          '/process-goal', { goal: originalGoal, clarifyAnswer: trimmed }
+        )
 
-      if (result?.needsClarification && result.question) {
-        setClarifyQuestion(result.question)
-        setOriginalGoal(trimmed)
-        setText('')
-        setLoading(false)
-        addingRef.current = false
-        return
+        if (result && !result.goal.needsClarification && result.goal.refined) {
+          await registerGoal(result)
+        } else if (result && result.goal.refined) {
+          await registerGoal(result)
+        } else {
+          // 2차에서도 모호하거나 서버 실패 → 그냥 합쳐서 등록
+          const fallbackGoal = `${originalGoal} — ${trimmed}`
+          addGoal(fallbackGoal, 'Y')
+          await throwStar(fallbackGoal)
+        }
+        setClarifyQuestion(null)
+        setOriginalGoal('')
+        setGoalData(null)
+      } else {
+        // 1차 호출
+        const result = await apiCall<ProcessGoalResponse>(
+          '/process-goal', { goal: trimmed }
+        )
+
+        if (result?.goal.needsClarification && result.goal.clarifyQuestion) {
+          // 모호함 → 되묻기
+          setClarifyQuestion(result.goal.clarifyQuestion)
+          setOriginalGoal(trimmed)
+          setGoalData(result)
+          setText('')
+          return
+        }
+
+        if (result && result.goal.refined) {
+          await registerGoal(result)
+        } else {
+          // 서버 실패 fallback
+          addGoal(trimmed, 'Y')
+          await throwStar(trimmed)
+        }
       }
-
-      await registerGoal(trimmed)
+    } finally {
+      setText('')
+      setLoading(false)
+      addingRef.current = false
     }
-
-    setText('')
-    setLoading(false)
-    addingRef.current = false
   }
 
-  async function registerGoal(goalText: string) {
-    let domain: Domain = 'Y'
-    const serverResult = await apiCall<{ domain: Domain }>('/classify', { text: goalText.slice(0, 30) })
-    if (serverResult) {
-      domain = serverResult.domain
-    } else {
-      domain = classifyText(goalText).domain
-    }
-    addGoal(goalText, domain)
+  async function registerGoal(data: any) {
+    const goalText = data.goal.refined || data.goal.original
+    const domain = (data.classification?.domain || 'Y') as Domain
+
+    // steps를 GoalStep 형식으로 변환
+    const steps = (data.steps || []).map((s: any) => ({
+      ...s,
+      done: false,
+    }))
+
+    addGoal(goalText, domain, steps)
     await throwStar(goalText)
 
-    // 과제 성격에 맞는 시간에 체크인 알림 스케줄링
+    // 체크인 알림 스케줄링
     scheduleCheckinNotifications(goalText)
+    setGoalData(data)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -87,6 +135,7 @@ export function GoalInput() {
   const handleCancelClarify = () => {
     setClarifyQuestion(null)
     setOriginalGoal('')
+    setGoalData(null)
     setText('')
   }
 
@@ -110,10 +159,17 @@ export function GoalInput() {
         </div>
       )}
 
-      {/* 오늘 이미 도전과제 있을 때 */}
-      {todayHasGoal && !clarifyQuestion && (
+      {/* 활성 도전 있을 때 */}
+      {hasActive && !clarifyQuestion && (
         <p className="mb-2" style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11 }}>
-          오늘의 도전과제가 설정되어 있어요
+          도전 진행 중 — 끝내면 다음 도전을 던질 수 있어요
+        </p>
+      )}
+
+      {/* 로딩 표시 */}
+      {loading && (
+        <p className="mb-2" style={{ color: 'rgba(100,200,150,0.5)', fontSize: 11 }}>
+          분석 중...
         </p>
       )}
 
@@ -138,17 +194,17 @@ export function GoalInput() {
           placeholder={
             clarifyQuestion
               ? '조금 더 구체적으로...'
-              : todayHasGoal
-                ? '내일의 도전은 내일...'
-                : '오늘 이기고 싶은 것 하나'
+              : hasActive
+                ? '지금 도전 진행 중...'
+                : '이기고 싶은 것을 던져보세요'
           }
-          disabled={todayHasGoal && !clarifyQuestion}
+          disabled={(hasActive && !clarifyQuestion) || loading}
           className="flex-1 px-3 py-2.5 rounded-xl text-sm text-white"
           style={{
             background: 'rgba(255,255,255,0.05)',
             border: '0.5px solid rgba(255,255,255,0.11)',
             fontSize: 13,
-            opacity: todayHasGoal && !clarifyQuestion ? 0.3 : 1,
+            opacity: (hasActive && !clarifyQuestion) || loading ? 0.3 : 1,
           }}
         />
 

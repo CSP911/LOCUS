@@ -3,13 +3,23 @@ import { persist } from 'zustand/middleware'
 import type { Domain } from '@locus/shared'
 
 // ── Types ─────────────────────────────────────
+export interface GoalStep {
+  order: number
+  text: string
+  checkinTime: number       // 시간 (6~23)
+  checkinMessage: string
+  done: boolean             // 완료 여부
+}
+
 export interface Goal {
   id: string
   text: string              // "30분 달리기", "1챕터 읽기"
   domain: Domain            // 자동 분류
-  date: string              // YYYY-MM-DD (이 날의 도전과제)
+  date: string              // YYYY-MM-DD
   createdAt: string
   active: boolean
+  steps: GoalStep[]         // 단계별 플랜
+  currentStep: number       // 현재 진행 중인 단계 (order)
 }
 
 export interface DayRecord {
@@ -35,11 +45,11 @@ interface GoalStore {
   balls: Ball[]
 
   // Goal actions
-  addGoal: (text: string, domain: Domain) => void
-  removeGoal: (id: string) => void
-  toggleGoal: (id: string) => void
-  getTodayGoal: () => Goal | undefined
-  hasTodayGoal: () => boolean
+  addGoal: (text: string, domain: Domain, steps?: GoalStep[]) => void
+  completeGoal: (id: string) => void
+  completeStep: (goalId: string, stepOrder: number) => void
+  getActiveGoal: () => Goal | undefined
+  hasActiveGoal: () => boolean
 
   // Record actions
   checkIn: (goalId: string, achieved: boolean, smallAction?: string) => void
@@ -64,28 +74,41 @@ export const useGoalStore = create<GoalStore>()(
       records: [],
       balls: [],
 
-      addGoal: (text: string, domain: Domain) => {
-        // 하루 1개 제한 — 이미 오늘 도전과제가 있으면 교체
-        const todayDate = today()
+      addGoal: (text: string, domain: Domain, steps?: GoalStep[]) => {
         const goal: Goal = {
           id: crypto.randomUUID(),
           text,
           domain,
-          date: todayDate,
+          date: today(),
           createdAt: new Date().toISOString(),
           active: true,
+          steps: steps || [],
+          currentStep: 1,
         }
-        set(s => ({
-          goals: [...s.goals.filter(g => g.date !== todayDate), goal],
-        }))
+        set(s => ({ goals: [...s.goals, goal] }))
       },
 
-      removeGoal: (id: string) =>
-        set(s => ({ goals: s.goals.filter(g => g.id !== id) })),
-
-      toggleGoal: (id: string) =>
+      completeGoal: (id: string) =>
         set(s => ({
-          goals: s.goals.map(g => g.id === id ? { ...g, active: !g.active } : g),
+          goals: s.goals.map(g => g.id === id ? { ...g, active: false } : g),
+        })),
+
+      completeStep: (goalId: string, stepOrder: number) =>
+        set(s => ({
+          goals: s.goals.map(g => {
+            if (g.id !== goalId) return g
+            const updatedSteps = g.steps.map(step =>
+              step.order === stepOrder ? { ...step, done: true } : step
+            )
+            const nextStep = stepOrder + 1
+            const allDone = updatedSteps.every(step => step.done)
+            return {
+              ...g,
+              steps: updatedSteps,
+              currentStep: nextStep,
+              active: !allDone,
+            }
+          }),
         })),
 
       checkIn: (goalId: string, achieved: boolean, smallAction?: string) => {
@@ -141,11 +164,11 @@ export const useGoalStore = create<GoalStore>()(
         return streak
       },
 
-      getTodayGoal: () =>
-        get().goals.find(g => g.date === today() && g.active),
+      getActiveGoal: () =>
+        get().goals.find(g => g.active),
 
-      hasTodayGoal: () =>
-        get().goals.some(g => g.date === today() && g.active),
+      hasActiveGoal: () =>
+        get().goals.some(g => g.active),
 
       // Ball actions
       throwBall: () => {
