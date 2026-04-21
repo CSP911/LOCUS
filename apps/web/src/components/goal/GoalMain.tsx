@@ -13,24 +13,20 @@ const DOMAIN_COLORS: Record<Domain, string> = {
 }
 
 export function GoalMain() {
-  const goals = useGoalStore(s => s.goals)
-  const activeGoals = goals.filter(g => g.active)
+  const getTodayGoal = useGoalStore(s => s.getTodayGoal)
+  const todayGoal = getTodayGoal()
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
       {/* 상단 여백 */}
       <div className="flex-1" />
 
-      {/* 목표 카드들 — 하단 입력 위에 여백 확보 */}
+      {/* 오늘의 도전과제 — 하나만 */}
       <div className="pointer-events-auto px-4 pb-24">
-        {activeGoals.length === 0 ? (
+        {!todayGoal ? (
           <EmptyState />
         ) : (
-          <div className="flex flex-col gap-2">
-            {activeGoals.map(goal => (
-              <GoalCard key={goal.id} goal={goal} />
-            ))}
-          </div>
+          <GoalCard key={todayGoal.id} goal={todayGoal} />
         )}
       </div>
     </div>

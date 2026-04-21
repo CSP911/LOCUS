@@ -5,10 +5,11 @@ import type { Domain } from '@locus/shared'
 // ── Types ─────────────────────────────────────
 export interface Goal {
   id: string
-  text: string              // "운동하기", "보고서 끝내기"
+  text: string              // "30분 달리기", "1챕터 읽기"
   domain: Domain            // 자동 분류
+  date: string              // YYYY-MM-DD (이 날의 도전과제)
   createdAt: string
-  active: boolean           // 현재 활성 목표인지
+  active: boolean
 }
 
 export interface DayRecord {
@@ -37,6 +38,8 @@ interface GoalStore {
   addGoal: (text: string, domain: Domain) => void
   removeGoal: (id: string) => void
   toggleGoal: (id: string) => void
+  getTodayGoal: () => Goal | undefined
+  hasTodayGoal: () => boolean
 
   // Record actions
   checkIn: (goalId: string, achieved: boolean, smallAction?: string) => void
@@ -62,14 +65,19 @@ export const useGoalStore = create<GoalStore>()(
       balls: [],
 
       addGoal: (text: string, domain: Domain) => {
+        // 하루 1개 제한 — 이미 오늘 도전과제가 있으면 교체
+        const todayDate = today()
         const goal: Goal = {
           id: crypto.randomUUID(),
           text,
           domain,
+          date: todayDate,
           createdAt: new Date().toISOString(),
           active: true,
         }
-        set(s => ({ goals: [...s.goals, goal] }))
+        set(s => ({
+          goals: [...s.goals.filter(g => g.date !== todayDate), goal],
+        }))
       },
 
       removeGoal: (id: string) =>
@@ -132,6 +140,12 @@ export const useGoalStore = create<GoalStore>()(
         }
         return streak
       },
+
+      getTodayGoal: () =>
+        get().goals.find(g => g.date === today() && g.active),
+
+      hasTodayGoal: () =>
+        get().goals.some(g => g.date === today() && g.active),
 
       // Ball actions
       throwBall: () => {

@@ -8,6 +8,8 @@ import { signalRouter } from './routes/signal'
 import { userRouter } from './routes/user'
 import { suggestSmallRouter } from './routes/suggest-small'
 import { perspectiveRouter } from './routes/perspective'
+import { clarifyGoalRouter } from './routes/clarify-goal'
+import { suggestCheckinTimesRouter } from './routes/suggest-checkin-times'
 import { errorMiddleware } from './middleware/error'
 import { logMiddleware } from './middleware/log'
 
@@ -33,6 +35,8 @@ app.use('/signal', signalRouter)
 app.use('/user', userRouter)
 app.use('/suggest-small', suggestSmallRouter)
 app.use('/perspective', perspectiveRouter)
+app.use('/clarify-goal', clarifyGoalRouter)
+app.use('/suggest-checkin-times', suggestCheckinTimesRouter)
 
 // ── Error Handler ───────────────────────
 app.use(errorMiddleware)
