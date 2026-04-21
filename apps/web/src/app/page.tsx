@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { ThrowInput } from '@/components/field/ThrowInput'
+import { GoalMain } from '@/components/goal/GoalMain'
+import { GoalInput } from '@/components/goal/GoalInput'
+import { BallAsk } from '@/components/goal/BallAsk'
+import { TodayStatus } from '@/components/goal/TodayStatus'
 import { SignalLine } from '@/components/signal/SignalLine'
-import { CorePerspective } from '@/components/signal/CorePerspective'
 import { Dashboard } from '@/components/dashboard/Dashboard'
 import { WeeklyReport } from '@/components/dashboard/WeeklyReport'
-import { RepeatAlert } from '@/components/signal/RepeatAlert'
 
 const StarField = dynamic(
   () => import('@/components/field/StarField').then(m => ({ default: m.StarField })),
@@ -20,19 +21,19 @@ export default function FieldPage() {
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-locus-bg">
-      {/* 3D Star Field */}
-      <StarField />
+      {/* 오늘의 상태 — 배경처럼 크게 */}
+      <TodayStatus />
 
-      {/* Signal */}
+      {/* Signal — 조용한 한 줄 */}
       <SignalLine />
 
-      {/* Repeat alert */}
-      <RepeatAlert />
+      {/* 공 던지기 물어보기 */}
+      <BallAsk />
 
-      {/* Core Perspective */}
-      <CorePerspective />
+      {/* 목표 카드 (하단 입력 위) */}
+      <GoalMain />
 
-      {/* Top buttons */}
+      {/* 상단 버튼 */}
       <div className="absolute top-4 right-4 z-10 flex gap-2">
         <button
           onClick={() => setShowReport(true)}
@@ -68,8 +69,8 @@ export default function FieldPage() {
         <WeeklyReport onClose={() => setShowReport(false)} />
       )}
 
-      {/* Throw input */}
-      <ThrowInput />
+      {/* 하단 입력 — 목표 던지기 + 공 */}
+      <GoalInput />
     </main>
   )
 }
