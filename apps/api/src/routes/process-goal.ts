@@ -7,6 +7,7 @@ export const processGoalRouter = Router()
 const schema = z.object({
   goal: z.string().min(1).max(100),
   clarifyAnswer: z.string().optional(),
+  avoidHours: z.array(z.number()).optional(),
 })
 
 /**
@@ -19,11 +20,11 @@ const schema = z.object({
  */
 processGoalRouter.post('/', async (req, res, next) => {
   try {
-    const { goal, clarifyAnswer } = schema.parse(req.body)
+    const { goal, clarifyAnswer, avoidHours } = schema.parse(req.body)
 
     let result
     try {
-      result = await processWithClaude(goal, clarifyAnswer)
+      result = await processWithClaude(goal, clarifyAnswer, avoidHours)
     } catch (err) {
       console.error('[process-goal] Claude error:', err)
       result = processFallback(goal, clarifyAnswer)
@@ -35,14 +36,18 @@ processGoalRouter.post('/', async (req, res, next) => {
   }
 })
 
-async function processWithClaude(goal: string, clarifyAnswer?: string) {
+async function processWithClaude(goal: string, clarifyAnswer?: string, avoidHours?: number[]) {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('no key')
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+  const avoidInfo = avoidHours && avoidHours.length > 0
+    ? `\n\n피할 시간대: ${avoidHours.sort((a,b) => a-b).join(', ')}시 (이 시간에는 체크인을 배정하지 마세요)`
+    : ''
+
   const userMessage = clarifyAnswer
-    ? `원래 목표: "${goal}"\n구체화 답변: "${clarifyAnswer}"\n\n중요: 이미 한 번 되물었습니다. needsClarification을 반드시 false로 하고 모든 필드를 채워주세요.`
-    : `목표: "${goal}"`
+    ? `원래 목표: "${goal}"\n구체화 답변: "${clarifyAnswer}"${avoidInfo}\n\n중요: 이미 한 번 되물었습니다. needsClarification을 반드시 false로 하고 모든 필드를 채워주세요.`
+    : `목표: "${goal}"${avoidInfo}`
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',

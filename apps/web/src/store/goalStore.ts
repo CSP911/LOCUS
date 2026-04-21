@@ -6,9 +6,10 @@ import type { Domain } from '@locus/shared'
 export interface GoalStep {
   order: number
   text: string
-  checkinTime: number       // 시간 (6~23)
+  checkinTime: number       // 예정 시간 (6~23)
   checkinMessage: string
-  done: boolean             // 완료 여부
+  done: boolean             // 완료 여���
+  doneAt?: number           // 실제 완료 시간 (시.분 소수점, 예: 14.5 = 14시 30분)
 }
 
 export interface Goal {
@@ -97,8 +98,10 @@ export const useGoalStore = create<GoalStore>()(
         set(s => ({
           goals: s.goals.map(g => {
             if (g.id !== goalId) return g
+            const now = new Date()
+            const doneAt = now.getHours() + now.getMinutes() / 60
             const updatedSteps = g.steps.map(step =>
-              step.order === stepOrder ? { ...step, done: true } : step
+              step.order === stepOrder ? { ...step, done: true, doneAt } : step
             )
             const nextStep = stepOrder + 1
             const allDone = updatedSteps.every(step => step.done)

@@ -1,23 +1,18 @@
 import { apiCall } from './api'
 
 /**
- * 도전과제에 맞는 체크인 알림 스케줄���
+ * 단계별 체크인 알림 스케줄링
  *
- * Capacitor LocalNotifications를 동적 import로 사용 (웹에서는 무시)
+ * 각 step의 checkinTime에 맞춰 알림 예약.
+ * 알림 탭 시 앱이 열리고 해당 단계로 이동.
  */
-export async function scheduleCheckinNotifications(goalText: string) {
-  // 1) LLM에게 최적 시간 물어보기
-  let times = [14, 21]
-  const result = await apiCall<{ times: number[] }>('/suggest-checkin-times', { goal: goalText })
-  if (result?.times && result.times.length === 2) {
-    times = result.times
-  }
-
-  // 2) Capacitor 환경인지 확인
+export async function scheduleStepNotifications(
+  goalText: string,
+  steps: { order: number; text: string; checkinTime: number; checkinMessage: string }[]
+) {
   try {
     const { LocalNotifications } = await import('@capacitor/local-notifications')
 
-    // 권한 요청
     const perm = await LocalNotifications.requestPermissions()
     if (perm.display !== 'granted') return
 
@@ -27,23 +22,19 @@ export async function scheduleCheckinNotifications(goalText: string) {
       await LocalNotifications.cancel(pending)
     }
 
-    // 오늘 날짜 기준으로 스케줄링
     const now = new Date()
-    const notifications = times.map((hour, i) => {
+    const notifications = steps.map((step) => {
       const scheduleDate = new Date(now)
-      scheduleDate.setHours(hour, 0, 0, 0)
+      scheduleDate.setHours(step.checkinTime, 0, 0, 0)
 
-      // 이미 지난 시간이면 스���
       if (scheduleDate <= now) return null
 
       return {
-        id: i + 1,
+        id: step.order,
         title: 'LŌCUS',
-        body: i === 0
-          ? `"${goalText}" — 진행 중인가요?`
-          : `"${goalText}" — 오늘 어떻게 됐나요?`,
+        body: step.checkinMessage,
         schedule: { at: scheduleDate },
-        sound: undefined,
+        extra: { stepOrder: step.order, goalText },
         smallIcon: 'ic_launcher',
       }
     }).filter(Boolean)
@@ -51,7 +42,27 @@ export async function scheduleCheckinNotifications(goalText: string) {
     if (notifications.length > 0) {
       await LocalNotifications.schedule({ notifications: notifications as any })
     }
+
+    // 알림 탭 리스너 등록
+    await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
+      const stepOrder = notification.notification.extra?.stepOrder
+      if (stepOrder) {
+        // URL hash로 단계 정보 전달 — GoalMain에서 읽음
+        window.location.hash = `step-${stepOrder}`
+      }
+    })
   } catch {
-    // 웹 환경 — 알림 스킵
+    // 웹 환경 — 스킵
   }
+}
+
+// 기존 함수 호환용
+export async function scheduleCheckinNotifications(goalText: string) {
+  // process-goal에서 steps와 함께 호출하는 scheduleStepNotifications로 대체됨
+  // 이 함수는 steps 없이 호출될 때의 fallback
+  const defaultSteps = [
+    { order: 1, text: '', checkinTime: 14, checkinMessage: `${goalText} — 진행 중인가요?` },
+    { order: 2, text: '', checkinTime: 21, checkinMessage: `${goalText} — 오늘 어떻게 됐나요?` },
+  ]
+  await scheduleStepNotifications(goalText, defaultSteps)
 }

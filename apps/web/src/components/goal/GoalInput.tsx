@@ -4,7 +4,8 @@ import { useState, useRef } from 'react'
 import { useGoalStore } from '@/store/goalStore'
 import { useStarStore } from '@/store/starStore'
 import { apiCall } from '@/lib/api'
-import { scheduleCheckinNotifications } from '@/lib/notifications'
+import { scheduleStepNotifications } from '@/lib/notifications'
+import { TimePicker } from './TimePicker'
 import type { Domain } from '@locus/shared'
 
 interface ProcessGoalResponse {
@@ -37,14 +38,17 @@ export function GoalInput() {
   const [originalGoal, setOriginalGoal] = useState('')
   const [loading, setLoading] = useState(false)
   const [goalData, setGoalData] = useState<ProcessGoalResponse | null>(null)
+  const [showTimePicker, setShowTimePicker] = useState(false)
+  const [pendingGoal, setPendingGoal] = useState<string>('')
+  const [avoidHours, setAvoidHours] = useState<number[]>([])
 
   const addGoal = useGoalStore(s => s.addGoal)
-  const hasActiveGoal = useGoalStore(s => s.hasActiveGoal)
+  const goals = useGoalStore(s => s.goals)
   const throwBall = useGoalStore(s => s.throwBall)
   const throwStar = useStarStore(s => s.throwStar)
   const addingRef = useRef(false)
 
-  const hasActive = hasActiveGoal()
+  const hasActive = goals.some(g => g.active)
 
   const handleSubmit = async () => {
     const trimmed = text.trim()
@@ -54,56 +58,74 @@ export function GoalInput() {
 
     try {
       if (clarifyQuestion) {
-        // 2차 호출 — 구체화 답변 포함. 되묻기는 최대 1번.
-        const result = await apiCall<ProcessGoalResponse>(
-          '/process-goal', { goal: originalGoal, clarifyAnswer: trimmed }
-        )
-
-        if (result && !result.goal.needsClarification && result.goal.refined) {
-          await registerGoal(result)
-        } else if (result && result.goal.refined) {
-          await registerGoal(result)
-        } else {
-          // 2차에서도 모호하거나 서버 실패 → 그냥 합쳐서 등록
-          const fallbackGoal = `${originalGoal} — ${trimmed}`
-          addGoal(fallbackGoal, 'Y')
-          await throwStar(fallbackGoal)
-        }
+        // 2차: 구체화 답변 → 시간 선택으로
+        setPendingGoal(`${originalGoal}|||${trimmed}`)
         setClarifyQuestion(null)
         setOriginalGoal('')
-        setGoalData(null)
+        setText('')
+        setShowTimePicker(true)
       } else {
-        // 1차 호출
+        // 1차: 모호한지 확인
         const result = await apiCall<ProcessGoalResponse>(
           '/process-goal', { goal: trimmed }
         )
 
         if (result?.goal.needsClarification && result.goal.clarifyQuestion) {
-          // 모호함 → 되묻기
           setClarifyQuestion(result.goal.clarifyQuestion)
           setOriginalGoal(trimmed)
-          setGoalData(result)
           setText('')
           return
         }
 
-        if (result && result.goal.refined) {
-          await registerGoal(result)
-        } else {
-          // 서버 실패 fallback
-          addGoal(trimmed, 'Y')
-          await throwStar(trimmed)
-        }
+        // 충분히 구체적 → 시간 선택으로
+        setPendingGoal(trimmed)
+        setText('')
+        setShowTimePicker(true)
       }
     } finally {
-      setText('')
       setLoading(false)
       addingRef.current = false
     }
   }
 
+  // 시간 선택 완료 → LLM 호출 + 등록
+  async function handleTimeConfirm(avoided: number[]) {
+    setShowTimePicker(false)
+    setAvoidHours(avoided)
+    setLoading(true)
+
+    const parts = pendingGoal.split('|||')
+    const goal = parts[0]
+    const clarifyAnswer = parts[1] || undefined
+
+    try {
+      const result = await apiCall<ProcessGoalResponse>(
+        '/process-goal',
+        { goal, clarifyAnswer, avoidHours: avoided }
+      )
+
+      if (result && (result.goal.refined || !result.goal.needsClarification)) {
+        await registerGoal(result)
+      } else {
+        const fallbackGoal = clarifyAnswer ? `${goal} — ${clarifyAnswer}` : goal
+        addGoal(fallbackGoal, 'Y')
+        await throwStar(fallbackGoal)
+      }
+    } finally {
+      setPendingGoal('')
+      setLoading(false)
+    }
+  }
+
+  function handleTimeSkip() {
+    handleTimeConfirm([])
+  }
+
   async function registerGoal(data: any) {
-    const goalText = data.goal.refined || data.goal.original
+    // 표시용: 첫 입력(사용자 의도)만. 재질문 답변은 포함하지 않음.
+    const goalText = pendingGoal.includes('|||')
+      ? pendingGoal.split('|||')[0]
+      : (data.goal.original || data.goal.refined)
     const domain = (data.classification?.domain || 'Y') as Domain
 
     // steps를 GoalStep 형식으로 변환
@@ -115,8 +137,10 @@ export function GoalInput() {
     addGoal(goalText, domain, steps)
     await throwStar(goalText)
 
-    // 체크인 알림 스케줄링
-    scheduleCheckinNotifications(goalText)
+    // 단계별 알림 스케줄링
+    if (data.steps && data.steps.length > 0) {
+      scheduleStepNotifications(goalText, data.steps)
+    }
     setGoalData(data)
   }
 
@@ -137,6 +161,10 @@ export function GoalInput() {
     setOriginalGoal('')
     setGoalData(null)
     setText('')
+  }
+
+  if (showTimePicker) {
+    return <TimePicker onConfirm={handleTimeConfirm} onCancel={handleTimeSkip} />
   }
 
   return (
