@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { Weight, Domain, Intensity, Direction, Nature } from '@locus/shared'
+import type { Weight, Domain, Intensity, Direction, Nature } from '../types/shared'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 

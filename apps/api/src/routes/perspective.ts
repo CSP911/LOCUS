@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
-import type { Domain } from '@locus/shared'
+import type { Domain } from '../types/shared'
 
 export const perspectiveRouter = Router()
 

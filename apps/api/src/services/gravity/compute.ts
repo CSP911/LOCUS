@@ -1,4 +1,4 @@
-import type { GravityField, Domain } from '@locus/shared'
+import type { GravityField, Domain } from '../types/shared'
 
 /**
  * computeGravity — 사용자의 현재 Gravity Field 계산

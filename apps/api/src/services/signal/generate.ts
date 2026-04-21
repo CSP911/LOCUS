@@ -1,4 +1,4 @@
-import type { Signal, SignalType, Domain } from '@locus/shared'
+import type { Signal, SignalType, Domain } from '../types/shared'
 import { computeGravity, checkGravityLevel } from '../gravity/compute'
 
 /**
