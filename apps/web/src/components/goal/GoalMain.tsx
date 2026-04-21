@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useGoalStore, type Goal } from '@/store/goalStore'
+import { suggestSmall } from '@/lib/classify-client'
+import { apiCall } from '@/lib/api'
 import type { Domain } from '@locus/shared'
 
 const DOMAIN_COLORS: Record<Domain, string> = {
@@ -63,22 +65,16 @@ function GoalCard({ goal }: { goal: Goal }) {
 
   const winsThisWeek = weekRecords.filter(r => r.achieved).length
 
-  // 못 했을 때 작은 버전 제안 가져오기
+  // 못 했을 때 작은 버전 제안 (서버 우선, fallback 클라이언트)
   async function fetchSmallSuggestion() {
     setLoadingSuggestion(true)
-    try {
-      const res = await fetch('/api/suggest-small', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal: goal.text }),
-      })
-      const data = await res.json()
-      setSmallSuggestion(data.suggestion)
-    } catch {
-      setSmallSuggestion(`${goal.text} — 1분만 해볼까요?`)
-    } finally {
-      setLoadingSuggestion(false)
+    const serverResult = await apiCall<{ suggestion: string }>('/suggest-small', { goal: goal.text })
+    if (serverResult?.suggestion) {
+      setSmallSuggestion(serverResult.suggestion)
+    } else {
+      setSmallSuggestion(suggestSmall(goal.text))
     }
+    setLoadingSuggestion(false)
   }
 
   function handleNotDone() {

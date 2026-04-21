@@ -6,6 +6,8 @@ import { classifyRouter } from './routes/classify'
 import { gravityRouter } from './routes/gravity'
 import { signalRouter } from './routes/signal'
 import { userRouter } from './routes/user'
+import { suggestSmallRouter } from './routes/suggest-small'
+import { perspectiveRouter } from './routes/perspective'
 import { errorMiddleware } from './middleware/error'
 import { logMiddleware } from './middleware/log'
 
@@ -15,7 +17,11 @@ const app = express()
 const PORT = process.env.PORT || 4000
 
 // ── Middleware ──────────────────────────
-app.use(cors({ origin: process.env.WEB_URL || 'http://localhost:3000' }))
+// 모바일 앱 + 웹 모두 허용
+app.use(cors({
+  origin: process.env.WEB_URL || '*',
+  methods: ['GET', 'POST'],
+}))
 app.use(express.json())
 app.use(logMiddleware)
 
@@ -25,6 +31,8 @@ app.use('/classify', classifyRouter)
 app.use('/gravity', gravityRouter)
 app.use('/signal', signalRouter)
 app.use('/user', userRouter)
+app.use('/suggest-small', suggestSmallRouter)
+app.use('/perspective', perspectiveRouter)
 
 // ── Error Handler ───────────────────────
 app.use(errorMiddleware)

@@ -3,6 +3,8 @@
 import { useState, useRef } from 'react'
 import { useGoalStore } from '@/store/goalStore'
 import { useStarStore } from '@/store/starStore'
+import { classifyText } from '@/lib/classify-client'
+import { apiCall } from '@/lib/api'
 import type { Domain } from '@locus/shared'
 
 /**
@@ -24,18 +26,13 @@ export function GoalInput() {
     if (!trimmed || addingRef.current) return
     addingRef.current = true
 
-    // 분류 API 호출
+    // 서버 분류 시도, 실패 시 클라이언트 fallback
     let domain: Domain = 'Y'
-    try {
-      const res = await fetch('/api/classify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: trimmed }),
-      })
-      const data = await res.json()
-      domain = data.domain as Domain
-    } catch {
-      // fallback
+    const serverResult = await apiCall<{ domain: Domain }>('/classify', { text: trimmed })
+    if (serverResult) {
+      domain = serverResult.domain
+    } else {
+      domain = classifyText(trimmed).domain
     }
 
     addGoal(trimmed, domain)

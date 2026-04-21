@@ -155,7 +155,11 @@ export const useStarStore = create<StarStore>()(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text }),
           })
-          data = await res.json()
+          if (res.ok) {
+            data = await res.json()
+          } else {
+            data = classifyLocal(text)
+          }
         } catch {
           data = classifyLocal(text)
         }
