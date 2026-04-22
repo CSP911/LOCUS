@@ -137,7 +137,15 @@ function GoalCard({ goal, onOpenChat }: { goal: Goal; onOpenChat: () => void }) 
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: DOMAIN_COLORS[goal.domain] }} />
           <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
-            {allDone ? '해냈어요' : doneCount >= totalSteps - 1 && doneCount > 0 ? '거의 다 왔어요' : doneCount > 0 ? '진행 중이에요' : '도전이 시작됐어요'}
+            {allDone
+              ? '해냈어요'
+              : goal.pausedUntil && new Date() < new Date(goal.pausedUntil)
+                ? '내일 이어가요'
+                : doneCount >= totalSteps - 1 && doneCount > 0
+                  ? '거의 다 왔어요'
+                  : doneCount > 0
+                    ? '진행 중이에요'
+                    : '도전이 시작됐어요'}
           </span>
         </div>
         <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>
