@@ -40,7 +40,7 @@ async function respondWithClaude(data: { goal: string; stepText: string; userMes
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 200,
     system: `사용자가 도전 과제 체크인에 응답했습니다. 리액션과 다음 액션을 JSON으로 반환하세요.
 
