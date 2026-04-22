@@ -11,6 +11,7 @@ import { perspectiveRouter } from './routes/perspective'
 import { clarifyGoalRouter } from './routes/clarify-goal'
 import { suggestCheckinTimesRouter } from './routes/suggest-checkin-times'
 import { checkinRespondRouter } from './routes/checkin-respond'
+import { dailyProfileRouter } from './routes/daily-profile'
 import { processGoalRouter } from './routes/process-goal'
 import { errorMiddleware } from './middleware/error'
 import { logMiddleware } from './middleware/log'
@@ -40,6 +41,7 @@ app.use('/perspective', perspectiveRouter)
 app.use('/clarify-goal', clarifyGoalRouter)
 app.use('/suggest-checkin-times', suggestCheckinTimesRouter)
 app.use('/checkin-respond', checkinRespondRouter)
+app.use('/daily-profile', dailyProfileRouter)
 app.use('/process-goal', processGoalRouter)
 
 // ── Error Handler ───────────────────────
