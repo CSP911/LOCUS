@@ -60,7 +60,7 @@ processGoalRouter.post('/', async (req, res, next) => {
     const { goal, clarifyAnswer, avoidHours, currentTime } = legacySchema.parse(req.body)
     let result
     try {
-      result = await legacyProcess(goal, clarifyAnswer, avoidHours)
+      result = await legacyProcess(goal, clarifyAnswer, avoidHours, currentTime)
     } catch (err) {
       console.error('[process-goal] Claude error:', err)
       result = legacyFallback(goal, clarifyAnswer)
@@ -244,7 +244,7 @@ function planFallback(data: any) {
 // ══════════════════════════════════════════════
 // Legacy: 한 번에 처리 (기존 호환)
 // ══════════════════════════════════════════════
-async function legacyProcess(goal: string, clarifyAnswer?: string, avoidHours?: number[]) {
+async function legacyProcess(goal: string, clarifyAnswer?: string, avoidHours?: number[], currentTime?: number) {
   const analysis = await analyzeGoal(goal, clarifyAnswer)
   if (analysis.goal?.needsClarification) return { ...analysis, steps: null }
 

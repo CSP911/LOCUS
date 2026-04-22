@@ -15,13 +15,9 @@ export function TimePicker({
   onConfirm: (avoidHours: number[]) => void
   onCancel: () => void
 }) {
-  const currentHour = new Date().getHours()
-  // 현재 시간 이전은 자동으로 피함
-  const pastHours = new Set(Array.from({ length: 18 }, (_, i) => i + 6).filter(h => h < currentHour))
-  const [avoided, setAvoided] = useState<Set<number>>(pastHours)
+  const [avoided, setAvoided] = useState<Set<number>>(new Set())
 
   function toggle(hour: number) {
-    if (hour <= currentHour) return // 지난 시간은 토글 불가
     setAvoided(prev => {
       const next = new Set(prev)
       if (next.has(hour)) next.delete(hour)
@@ -48,28 +44,20 @@ export function TimePicker({
         {/* 숫자 그리드 — 6열 */}
         <div className="grid grid-cols-6 gap-1.5 mb-5">
           {hours.map(h => {
-            const isPast = h < currentHour
             const isAvoided = avoided.has(h)
             return (
               <button
                 key={h}
                 onClick={() => toggle(h)}
-                disabled={isPast}
                 className="aspect-square rounded-lg flex items-center justify-center text-sm font-medium transition-all"
                 style={{
-                  background: isPast
-                    ? 'rgba(255,255,255,0.02)'
-                    : isAvoided
+                  background: isAvoided
                       ? 'rgba(255,100,100,0.15)'
                       : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${isPast
-                    ? 'rgba(255,255,255,0.03)'
-                    : isAvoided
+                  border: `1px solid ${isAvoided
                       ? 'rgba(255,100,100,0.3)'
                       : 'rgba(255,255,255,0.06)'}`,
-                  color: isPast
-                    ? 'rgba(255,255,255,0.1)'
-                    : isAvoided
+                  color: isAvoided
                       ? 'rgba(255,120,120,0.8)'
                       : 'rgba(255,255,255,0.4)',
                   fontSize: 13,
