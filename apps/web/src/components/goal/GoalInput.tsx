@@ -101,7 +101,12 @@ export function GoalInput() {
     try {
       const result = await apiCall<ProcessGoalResponse>(
         '/process-goal',
-        { goal, clarifyAnswer, avoidHours: avoided }
+        {
+          goal,
+          clarifyAnswer,
+          avoidHours: avoided,
+          currentTime: new Date().getHours() + new Date().getMinutes() / 60,
+        }
       )
 
       if (result && (result.goal.refined || !result.goal.needsClarification)) {

@@ -52,11 +52,12 @@ const legacySchema = z.object({
   goal: z.string().min(1).max(100),
   clarifyAnswer: z.string().optional(),
   avoidHours: z.array(z.number()).optional(),
+  currentTime: z.number().optional(),
 })
 
 processGoalRouter.post('/', async (req, res, next) => {
   try {
-    const { goal, clarifyAnswer, avoidHours } = legacySchema.parse(req.body)
+    const { goal, clarifyAnswer, avoidHours, currentTime } = legacySchema.parse(req.body)
     let result
     try {
       result = await legacyProcess(goal, clarifyAnswer, avoidHours)
@@ -169,12 +170,16 @@ function analyzeFallback(goal: string, clarifyAnswer?: string) {
 // ══════════════════════════════════════════════
 // Step 3: 세부 플랜 생성
 // ══════════════════════════════════════════════
-async function createPlan(data: { goal: string; refined?: string; timeType: string; selectedHours: number[]; classification?: any }) {
+async function createPlan(data: { goal: string; refined?: string; timeType: string; selectedHours: number[]; classification?: any; currentTime?: number }) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
+  const currentTimeStr = data.currentTime
+    ? `\n현재 시간: ${Math.floor(data.currentTime)}:${String(Math.round((data.currentTime % 1) * 60)).padStart(2, '0')} — 반드시 이 시간 이후로만 체크인을 배치하세요.`
+    : ''
+
   const timeInfo = data.timeType === 'target'
-    ? `목표 시점: ${data.selectedHours.join(', ')}시 (이 시간에 실행해야 합니다. 그 전에 준비 단계를 배치하세요)`
-    : `피할 시간: ${data.selectedHours.sort((a,b) => a-b).join(', ')}시 (이 시간에는 체크인을 배정하지 마세요)`
+    ? `목표 시점: ${data.selectedHours.join(', ')}시 (이 시간에 실행해야 합니다. 그 전에 준비 단계를 배치하세요)${currentTimeStr}`
+    : `피할 시간: ${data.selectedHours.sort((a,b) => a-b).join(', ')}시 (이 시간에는 체크인을 배정하지 마세요)${currentTimeStr}`
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
@@ -249,6 +254,7 @@ async function legacyProcess(goal: string, clarifyAnswer?: string, avoidHours?: 
     timeType: 'avoid',
     selectedHours: avoidHours || [],
     classification: analysis.classification,
+    currentTime,
   })
 
   return { ...analysis, ...plan }
