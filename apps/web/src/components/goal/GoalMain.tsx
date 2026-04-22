@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useGoalStore, type Goal, type GoalStep } from '@/store/goalStore'
+import { CheckinChat } from './CheckinChat'
 import type { Domain } from '@locus/shared'
 
 const DOMAIN_COLORS: Record<Domain, string> = {
@@ -66,27 +67,31 @@ function GoalCard({ goal }: { goal: Goal }) {
   const allDone = doneCount === totalSteps && totalSteps > 0
 
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
-  const [confirmAction, setConfirmAction] = useState<'done' | 'skip' | null>(null)
+  const [showChat, setShowChat] = useState(false)
   const [processing, setProcessing] = useState(false)
 
-  function handleConfirmDone() {
-    if (!currentStepData || processing) return
+  function handleChatComplete() {
+    if (!currentStepData) return
+    setShowChat(false)
     setProcessing(true)
-    setConfirmAction(null)
     completeStep(goal.id, currentStepData.order)
 
     if (currentStepData.order === totalSteps) {
       setFeedbackMessage('전부 해냈어요!')
     } else {
-      setFeedbackMessage(`${currentStepData.order}단계 완료. 다음은 언제든 준비되면.`)
+      setFeedbackMessage(`${currentStepData.order}단계 완료.`)
     }
     setTimeout(() => { setFeedbackMessage(null); setProcessing(false) }, 3000)
   }
 
-  function handleConfirmSkip() {
-    if (processing) return
+  function handleChatDefer() {
+    setShowChat(false)
+    // defer — 아무것도 안 함. 나중에 다시 할 수 있음.
+  }
+
+  function handleChatSkip() {
+    setShowChat(false)
     setProcessing(true)
-    setConfirmAction(null)
     completeGoal(goal.id)
   }
 
@@ -211,58 +216,34 @@ function GoalCard({ goal }: { goal: Goal }) {
         })}
       </div>
 
-      {/* 현재 단계 버튼 — 공개됐을 때만 */}
+      {/* 현재 단계 — 체크인 버튼 (채팅 열기) */}
       {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && !processing && (
-        confirmAction ? (
-          /* confirm 단계 */
-          <div className="mt-1">
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginBottom: 6 }}>
-              {confirmAction === 'done' ? '이 단계를 완료할까요?' : '오늘 도전을 넘길까요?'}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={confirmAction === 'done' ? handleConfirmDone : handleConfirmSkip}
-                className="px-3 py-1.5 rounded-lg text-xs"
-                style={{
-                  background: confirmAction === 'done' ? 'rgba(100,200,150,0.15)' : 'rgba(255,255,255,0.06)',
-                  border: `0.5px solid ${confirmAction === 'done' ? 'rgba(100,200,150,0.25)' : 'rgba(255,255,255,0.1)'}`,
-                  color: confirmAction === 'done' ? 'rgba(100,200,150,0.8)' : 'rgba(255,255,255,0.4)',
-                }}
-              >
-                네
-              </button>
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="px-3 py-1.5 rounded-lg text-xs"
-                style={{ color: 'rgba(255,255,255,0.2)' }}
-              >
-                아니요
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* 기본 버튼 */
-          <div className="flex gap-2 mt-1">
-            <button
-              onClick={() => setConfirmAction('done')}
-              className="px-3 py-1.5 rounded-lg text-xs"
-              style={{
-                background: 'rgba(100,200,150,0.1)',
-                border: '0.5px solid rgba(100,200,150,0.2)',
-                color: 'rgba(100,200,150,0.7)',
-              }}
-            >
-              했어요 ✓
-            </button>
-            <button
-              onClick={() => setConfirmAction('skip')}
-              className="px-3 py-1.5 rounded-lg text-xs"
-              style={{ color: 'rgba(255,255,255,0.2)' }}
-            >
-              오늘은 넘길게요
-            </button>
-          </div>
-        )
+        <div className="mt-1">
+          <button
+            onClick={() => setShowChat(true)}
+            className="px-4 py-2 rounded-xl text-xs w-full"
+            style={{
+              background: 'rgba(100,200,150,0.08)',
+              border: '0.5px solid rgba(100,200,150,0.15)',
+              color: 'rgba(100,200,150,0.7)',
+            }}
+          >
+            체크인하기
+          </button>
+        </div>
+      )}
+
+      {/* 채팅형 체크인 오버레이 */}
+      {showChat && currentStepData && (
+        <CheckinChat
+          goal={goal.text}
+          stepText={currentStepData.text}
+          checkinMessage={currentStepData.checkinMessage}
+          onComplete={handleChatComplete}
+          onDefer={handleChatDefer}
+          onSkip={handleChatSkip}
+          onClose={() => setShowChat(false)}
+        />
       )}
 
       {/* 피드백 메시지 */}
