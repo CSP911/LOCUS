@@ -4,63 +4,92 @@ import Anthropic from '@anthropic-ai/sdk'
 
 export const processGoalRouter = Router()
 
-const schema = z.object({
+// ── Step 1: 목적 분석 ────────────────────────
+const step1Schema = z.object({
+  goal: z.string().min(1).max(100),
+  clarifyAnswer: z.string().optional(),
+})
+
+processGoalRouter.post('/analyze', async (req, res, next) => {
+  try {
+    const { goal, clarifyAnswer } = step1Schema.parse(req.body)
+    let result
+    try {
+      result = await analyzeGoal(goal, clarifyAnswer)
+    } catch (err) {
+      console.error('[analyze] Claude error:', err)
+      result = analyzeFallback(goal, clarifyAnswer)
+    }
+    res.json(result)
+  } catch (err) { next(err) }
+})
+
+// ── Step 3: 세부 플랜 생성 ────────────────────
+const step3Schema = z.object({
+  goal: z.string().min(1).max(100),
+  refined: z.string().optional(),
+  timeType: z.enum(['target', 'avoid']),
+  selectedHours: z.array(z.number()),
+  classification: z.any().optional(),
+})
+
+processGoalRouter.post('/plan', async (req, res, next) => {
+  try {
+    const data = step3Schema.parse(req.body)
+    let result
+    try {
+      result = await createPlan(data)
+    } catch (err) {
+      console.error('[plan] Claude error:', err)
+      result = planFallback(data)
+    }
+    res.json(result)
+  } catch (err) { next(err) }
+})
+
+// 기존 호환용 — 한 번에 처리
+const legacySchema = z.object({
   goal: z.string().min(1).max(100),
   clarifyAnswer: z.string().optional(),
   avoidHours: z.array(z.number()).optional(),
 })
 
-/**
- * POST /process-goal
- *
- * 사용자 목표를 한 번에 처리:
- * 1. 목표 정리 + 모호 시 추가 질문
- * 2. Weight 4축 분류
- * 3. 부담 없는 단계별 플랜 × 각각 알람 시간
- */
 processGoalRouter.post('/', async (req, res, next) => {
   try {
-    const { goal, clarifyAnswer, avoidHours } = schema.parse(req.body)
-
+    const { goal, clarifyAnswer, avoidHours } = legacySchema.parse(req.body)
     let result
     try {
-      result = await processWithClaude(goal, clarifyAnswer, avoidHours)
+      result = await legacyProcess(goal, clarifyAnswer, avoidHours)
     } catch (err) {
       console.error('[process-goal] Claude error:', err)
-      result = processFallback(goal, clarifyAnswer)
+      result = legacyFallback(goal, clarifyAnswer)
     }
-
     res.json(result)
-  } catch (err) {
-    next(err)
-  }
+  } catch (err) { next(err) }
 })
 
-async function processWithClaude(goal: string, clarifyAnswer?: string, avoidHours?: number[]) {
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('no key')
+// ══════════════════════════════════════════════
+// Step 1: 목적 분석 — 되묻기 + timeType 판단
+// ══════════════════════════════════════════════
+async function analyzeGoal(goal: string, clarifyAnswer?: string) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-  const avoidInfo = avoidHours && avoidHours.length > 0
-    ? `\n\n피할 시간대: ${avoidHours.sort((a,b) => a-b).join(', ')}시 (이 시간에는 체크인을 배정하지 마세요)`
-    : ''
-
-  const userMessage = clarifyAnswer
-    ? `원래 목표: "${goal}"\n구체화 답변: "${clarifyAnswer}"${avoidInfo}\n\n중요: 이미 한 번 되물었습니다. needsClarification을 반드시 false로 하고 모든 필드를 채워주세요.`
-    : `목표: "${goal}"${avoidInfo}`
+  const userMsg = clarifyAnswer
+    ? `원래 목표: "${goal}"\n구체화 답변: "${clarifyAnswer}"\n\n중요: 이미 한 번 되물었습니다. needsClarification을 반드시 false로 하세요.`
+    : `목표: "${goal}"`
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 700,
-    system: `당신은 LŌCUS 도전과제 설계자입니다. 사용자의 목표를 분석하고 부담 없는 단계별 플랜을 설계합니다.
+    max_tokens: 300,
+    system: `사용자의 도전 목표를 분석합니다. JSON만 반환하세요.
 
-■ 응답 형식 (JSON만, 설명 없이):
+■ 응답 형식:
 {
   "goal": {
-    "original": "사용자 원문",
+    "original": "원문",
     "needsClarification": true/false,
-    "clarifyQuestion": "구체화 질문 (needsClarification=true일 때만)",
-    "refined": "구체화된 최종 목표 (needsClarification=false일 때)"
+    "clarifyQuestion": "구체화 질문 (true일 때만)",
+    "refined": "구체화된 목표 (false일 때)"
   },
   "classification": {
     "domain": "X/Y/Z",
@@ -68,104 +97,139 @@ async function processWithClaude(goal: string, clarifyAnswer?: string, avoidHour
     "direction": "in/out",
     "nature": ["unresolved"/"recurring"/"onetime"]
   },
-  "steps": [
-    {
-      "order": 1,
-      "text": "가장 작고 쉬운 첫 단계",
-      "checkinTime": 10,
-      "checkinMessage": "체크인 메시지"
-    },
-    {
-      "order": 2,
-      "text": "다음 단계",
-      "checkinTime": 14,
-      "checkinMessage": "체크인 메시지"
-    },
-    {
-      "order": 3,
-      "text": "마무리 단계",
-      "checkinTime": 21,
-      "checkinMessage": "체크인 메시지"
-    }
-  ]
+  "timeType": "target" 또는 "avoid",
+  "timeQuestion": "시간 관련 안내 문구"
 }
 
-■ 단계 설계 규칙:
-- 2~4단계로 나눔 (목표 복잡도에 따라)
-- 각 단계는 1~5분 안에 끝나는 수준
-- 실패가 불가능할 정도로 작게
-- 순서대로 진행하면 자연스럽게 목표 달성
-- 첫 단계는 "준비" 수준 (물건 꺼내기, 앱 열기 등)
-- 마지막 단계는 "마무리/확인" 수준
-- checkinTime: 각 단계에 맞는 시간 (6~23 정수)
-  아침 과제: 8→12→20 / 업무 과제: 10→15→18 / 저녁 과제: 14→19→22
-- checkinMessage: 친근한 톤, 판단 없이 진행 여부만 물어봄, "~했나요?" / "~어때요?"
-
-■ 현실 제약 (각 단계 설계 시 반드시 고려):
-- 장소 독립: 이전 단계와 다른 장소에 있을 수 있음. 특정 장소를 전제하지 말 것
-- 시간 제약: 갑자기 바빠질 수 있음. 각 단계는 5분 이내로 끝나야 함
-- 에너지 변화: 아침과 저녁의 에너지가 다름. 늦은 시간 단계는 더 쉽게
-- 최소 도구: 목표에 필요한 기본 도구(책, 운동화 등)는 있다고 가정하되, 추가적인 특별 준비는 요구하지 말 것
-- 자력 수행: 다른 사람 없이 혼자 할 수 있어야 함
-- 단계 간 독립: 이전 단계의 결과물(준비한 물건 등)이 없어도 다음 단계를 시작할 수 있어야 함
-
-■ 목표 판단:
-- needsClarification: "했다/안했다" 판단이 어려울 만큼 모호하면 true
-- "운동하기"→true, "30분 달리기"→false, "책 읽기"→true, "1챕터 읽기"→false
-- needsClarification=true이면 steps는 null
+■ timeType 판단 기준:
+- "target": 목표에 특정 시점이 있는 경우 (미팅 준비, 발표, 약속 등)
+  → timeQuestion: "몇 시에 예정인가요?" 느낌
+- "avoid": 하루 중 자유롭게 할 수 있는 경우 (독서, 운동, 공부 등)
+  → timeQuestion: "피하고 싶은 시간대가 있나요?" 느낌
 
 ■ 분류:
-- domain: X(건강/몸/수면/운동), Y(일/공부/성과/책임), Z(관계/사람/소통)
-- intensity: 텍스트에 담긴 무게감
-- direction: in(내가 통제 가능), out(타인/환경)
-- nature: "또/항상/매번"→recurring, "아직/계속"→unresolved, 단발→onetime
+- domain: X(건강/몸), Y(일/공부/성과), Z(관계/사람)
+- needsClarification: "했다/안했다" 판단 어려우면 true
 
-■ 절대 금지:
-- 위로/힐링/진단/조언
-- "해야 합니다", "하세요" 톤
-- 감정 라벨링`,
-    messages: [{ role: 'user', content: userMessage }],
+■ 절대 금지: 위로/힐링/진단/조언. 감정 라벨 금지.`,
+    messages: [{ role: 'user', content: userMsg }],
   })
 
   const raw = message.content[0].type === 'text' ? message.content[0].text : '{}'
   const clean = raw.replace(/```json|```/g, '').trim()
-  return JSON.parse(clean)
+  const jsonMatch = clean.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('No JSON found in response')
+  return JSON.parse(jsonMatch[0])
 }
 
-function processFallback(goal: string, clarifyAnswer?: string) {
+function analyzeFallback(goal: string, clarifyAnswer?: string) {
   const finalGoal = clarifyAnswer ? `${goal} — ${clarifyAnswer}` : goal
+  const isVague = finalGoal.length <= 5 || /하기$|읽기$/.test(finalGoal)
 
-  const isVague = finalGoal.length <= 5 || /하기$|하기!$|읽기$|하자$/.test(finalGoal)
   if (isVague && !clarifyAnswer) {
     return {
-      goal: {
-        original: goal,
-        needsClarification: true,
-        clarifyQuestion: `"${goal}" — 조금만 더 구체적으로 알려줄래요? 어떤 걸 얼마나?`,
-        refined: null,
-      },
-      classification: null,
-      steps: null,
+      goal: { original: goal, needsClarification: true, clarifyQuestion: `"${goal}" — 조금만 더 구체적으로 알려줄래요?`, refined: null },
+      classification: null, timeType: null, timeQuestion: null,
     }
   }
 
+  const hasDeadline = /미팅|회의|발표|약속|면접|시험/.test(finalGoal)
   return {
-    goal: {
-      original: goal,
-      needsClarification: false,
-      clarifyQuestion: null,
-      refined: finalGoal,
-    },
-    classification: {
-      domain: 'Y',
-      intensity: 3,
-      direction: 'in',
-      nature: ['onetime'],
-    },
+    goal: { original: goal, needsClarification: false, clarifyQuestion: null, refined: finalGoal },
+    classification: { domain: 'Y', intensity: 3, direction: 'in', nature: ['onetime'] },
+    timeType: hasDeadline ? 'target' : 'avoid',
+    timeQuestion: hasDeadline ? '몇 시에 예정인가요?' : '피하고 싶은 시간대가 있나요?',
+  }
+}
+
+// ══════════════════════════════════════════════
+// Step 3: 세부 플랜 생성
+// ══════════════════════════════════════════════
+async function createPlan(data: { goal: string; refined?: string; timeType: string; selectedHours: number[]; classification?: any }) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+
+  const timeInfo = data.timeType === 'target'
+    ? `목표 시점: ${data.selectedHours.join(', ')}시 (이 시간에 실행해야 합니다. 그 전에 준비 단계를 배치하세요)`
+    : `피할 시간: ${data.selectedHours.sort((a,b) => a-b).join(', ')}시 (이 시간에는 체크인을 배정하지 마세요)`
+
+  const message = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 500,
+    system: `도전 목표의 세부 플랜을 설계합니다. JSON만 반환하세요.
+
+■ 응답 형식:
+{
+  "steps": [
+    { "order": 1, "text": "단계 내용", "checkinTime": 10, "checkinMessage": "체크인 메시지" },
+    ...
+  ]
+}
+
+■ 단계 설계 규칙:
+- 2~4단계로 나눔
+- 각 단계 1~5분 안에 끝나는 수준
+- 실패 불가능할 정도로 작게
+- 첫 단계는 "준비", 마지막은 "마무리/확인"
+- checkinMessage: 친근한 톤, 판단 없이
+
+■ 시간 배치 규칙:
+- checkinTime은 반드시 6~23 사이의 정수 (예: 8, 11, 14, 21). 830 같은 형식 금지.
+- timeType이 "target"이면: 목표 시점 기준으로 역산. 준비→리허설→실행 순서
+- timeType이 "avoid"이면: 피할 시간을 제외하고 배치
+
+■ 현실 제약 (각 단계 반드시 고려):
+- 장소 독립: 이전 단계와 다른 장소에 있을 수 있음
+- 시간 제약: 각 단계 5분 이내
+- 에너지 변화: 늦은 시간은 더 쉽게
+- 최소 도구: 기본 도구만 가정, 추가 준비 불필요
+- 자력 수행: 혼자 할 수 있어야 함
+- 단계 간 독립: 이전 단계 결과물 없어도 다음 단계 가능
+
+■ 절대 금지: 위로/힐링/진단/조언`,
+    messages: [{
+      role: 'user',
+      content: `목표: "${data.refined || data.goal}"\n${timeInfo}`,
+    }],
+  })
+
+  const raw = message.content[0].type === 'text' ? message.content[0].text : '{}'
+  const clean = raw.replace(/```json|```/g, '').trim()
+  // JSON 부분만 추출 (첫 { 부터 마지막 } 까지)
+  const jsonMatch = clean.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('No JSON found in response')
+  return JSON.parse(jsonMatch[0])
+}
+
+function planFallback(data: any) {
+  return {
     steps: [
       { order: 1, text: '시작 준비하기', checkinTime: 10, checkinMessage: '준비 됐나요?' },
-      { order: 2, text: `${finalGoal} — 1분만 해보기`, checkinTime: 14, checkinMessage: '조금이라도 했나요?' },
-      { order: 3, text: '한 것 확인하기', checkinTime: 21, checkinMessage: '오늘 어떻게 됐나요?' },
+      { order: 2, text: '1분만 해보기', checkinTime: 14, checkinMessage: '조금이라도 했나요?' },
+      { order: 3, text: '마무리하기', checkinTime: 21, checkinMessage: '오늘 어떻게 됐나요?' },
     ],
   }
+}
+
+// ══════════════════════════════════════════════
+// Legacy: 한 번에 처리 (기존 호환)
+// ══════════════════════════════════════════════
+async function legacyProcess(goal: string, clarifyAnswer?: string, avoidHours?: number[]) {
+  const analysis = await analyzeGoal(goal, clarifyAnswer)
+  if (analysis.goal?.needsClarification) return { ...analysis, steps: null }
+
+  const plan = await createPlan({
+    goal,
+    refined: analysis.goal?.refined,
+    timeType: 'avoid',
+    selectedHours: avoidHours || [],
+    classification: analysis.classification,
+  })
+
+  return { ...analysis, ...plan }
+}
+
+function legacyFallback(goal: string, clarifyAnswer?: string) {
+  const analysis = analyzeFallback(goal, clarifyAnswer)
+  if (analysis.goal?.needsClarification) return { ...analysis, steps: null }
+  return { ...analysis, ...planFallback({}) }
 }
