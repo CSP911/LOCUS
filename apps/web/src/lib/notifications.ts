@@ -1,7 +1,7 @@
-import { apiCall } from './api'
-
 /**
  * 단계별 체크인 알림 스케줄링
+ *
+ * 테스트 알림과 100% 동일한 구조로 — extra 제거, 이모지 제거, 하나씩 schedule
  */
 export async function scheduleStepNotifications(
   goalText: string,
@@ -11,67 +11,71 @@ export async function scheduleStepNotifications(
     const { LocalNotifications } = await import('@capacitor/local-notifications')
 
     const perm = await LocalNotifications.requestPermissions()
-    if (perm.display !== 'granted') {
-      console.warn('[noti] permission denied')
-      return
-    }
+    if (perm.display !== 'granted') return
 
-    // 기존 알림 취소
+    // 기존 알림 전부 취소
     const pending = await LocalNotifications.getPending()
     if (pending.notifications.length > 0) {
       await LocalNotifications.cancel(pending)
     }
 
-    const now = new Date()
-    const debugInfo: string[] = []
+    const nowMs = Date.now()
+    const nowDate = new Date()
+    // 오늘 0시 0분 0초 기준 ms
+    const todayStart = new Date(nowDate)
+    todayStart.setHours(0, 0, 0, 0)
+    const todayStartMs = todayStart.getTime()
+    let scheduled = 0
 
-    const notifications = steps.map((step) => {
-      const hours = Math.floor(step.checkinTime)
-      const minutes = Math.round((step.checkinTime - hours) * 60)
-      const scheduleDate = new Date()
-      scheduleDate.setHours(hours, minutes, 0, 0)
+    for (const step of steps) {
+      // checkinTime(소수 시간) → 밀리초 직접 변환 (초 단위 정밀도 유지)
+      const targetMs = todayStartMs + step.checkinTime * 3600000
+      const diffMs = targetMs - nowMs
 
-      // 이미 지난 시간이면 내일로
-      if (scheduleDate <= now) {
-        scheduleDate.setDate(scheduleDate.getDate() + 1)
-        debugInfo.push(`step${step.order}: ${hours}:${String(minutes).padStart(2,'0')} → 내일로 이동`)
-      } else {
-        debugInfo.push(`step${step.order}: ${hours}:${String(minutes).padStart(2,'0')} → 오늘 예약`)
-      }
+      if (diffMs <= 0) continue
 
-      return {
-        id: step.order,
-        title: 'LŌCUS',
-        body: step.checkinMessage,
-        schedule: { at: scheduleDate },
-        extra: { stepOrder: step.order, goalText },
-        smallIcon: 'ic_launcher',
-      }
-    })
+      const at = new Date(nowMs + diffMs)
+      const body = `Step ${step.order}: ${step.text}`.slice(0, 100) // 이모지 없는 순수 텍스트, 100자 제한
 
-    console.log('[noti] scheduling', notifications.length, 'notifications')
-    debugInfo.forEach(d => console.log('[noti]  ', d))
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: 900 + step.order,
+          title: 'LŌCUS',
+          body,
+          schedule: { at, allowWhileIdle: true, exact: true } as any,
+          smallIcon: 'ic_launcher',
+        }],
+      })
 
-    if (notifications.length > 0) {
-      await LocalNotifications.schedule({ notifications: notifications as any })
-      const after = await LocalNotifications.getPending()
-      console.log('[noti] pending after schedule:', after.notifications.length)
-
-      // DEV: 사용자에게 예약 결과 표시
-      const summary = debugInfo.join('\n')
-      alert(`알림 ${after.notifications.length}개 예약됨\n\n${summary}`)
+      scheduled++
     }
 
-    // 알림 탭 리스너
-    await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
-      const stepOrder = notification.notification.extra?.stepOrder
-      if (stepOrder) {
-        window.location.hash = `step-${stepOrder}`
-      }
-    })
+    // 알림 예약 완료 (디버그 alert 제거됨)
+
+    // 알림 수신 리스너 — 알림이 도착하면 해당 단계 활성화
+    if (!(window as any).__locusNotiListener) {
+      (window as any).__locusNotiListener = true
+
+      // 포그라운드에서 알림 수신 시
+      await LocalNotifications.addListener('localNotificationReceived', async (notification) => {
+        const stepOrder = notification.id - 900
+        if (stepOrder > 0 && stepOrder <= 10) {
+          const { useGoalStore } = await import('@/store/goalStore')
+          useGoalStore.getState().revealStep(stepOrder)
+        }
+      })
+
+      // 알림 탭해서 앱 열 때
+      await LocalNotifications.addListener('localNotificationActionPerformed', async (action) => {
+        const stepOrder = action.notification.id - 900
+        if (stepOrder > 0 && stepOrder <= 10) {
+          const { useGoalStore } = await import('@/store/goalStore')
+          useGoalStore.getState().revealStep(stepOrder)
+        }
+      })
+    }
   } catch (err: any) {
-    console.error('[noti] ERROR:', err)
-    alert('알림 예약 실패: ' + (err?.message || err))
+    console.error('알림 에러:', err)
   }
 }
 
@@ -85,16 +89,14 @@ export async function cancelAllNotifications() {
     if (pending.notifications.length > 0) {
       await LocalNotifications.cancel(pending)
     }
-  } catch {
-    // 웹 환경 — 스킵
-  }
+  } catch {}
 }
 
-// 기존 함수 호환용
+// 기존 호환
 export async function scheduleCheckinNotifications(goalText: string) {
   const defaultSteps = [
-    { order: 1, text: '', checkinTime: 14, checkinMessage: `${goalText} — 진행 중인가요?` },
-    { order: 2, text: '', checkinTime: 21, checkinMessage: `${goalText} — 오늘 어떻게 됐나요?` },
+    { order: 1, text: '중간 체크', checkinTime: 14, checkinMessage: '진행 중인가요?' },
+    { order: 2, text: '마무리 체크', checkinTime: 21, checkinMessage: '오늘 어떻게 됐나요?' },
   ]
   await scheduleStepNotifications(goalText, defaultSteps)
 }

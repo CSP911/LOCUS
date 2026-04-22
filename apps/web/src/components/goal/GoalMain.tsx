@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useGoalStore, type Goal, type GoalStep } from '@/store/goalStore'
 import { CheckinChat } from './CheckinChat'
-import { cancelAllNotifications } from '@/lib/notifications'
+import { cancelAllNotifications, scheduleStepNotifications } from '@/lib/notifications'
+import { apiCall } from '@/lib/api'
 import type { Domain } from '@locus/shared'
 
 const DOMAIN_COLORS: Record<Domain, string> = {
@@ -43,25 +44,55 @@ export function GoalMain() {
               setShowChat(false)
               const { completeStep } = useGoalStore.getState()
               completeStep(goal.id, step.order)
-              // 마지막 단계면 알림 전부 취소
               if (step.order === goal.steps.length) {
                 cancelAllNotifications()
               }
             }}
-            onDeferToday={() => {
-              setShowChat(false)
-              const { pauseToday } = useGoalStore.getState()
-              pauseToday(goal.id)
-              cancelAllNotifications()
-            }}
-            onDeferLater={() => {
-              setShowChat(false)
-            }}
-            onSkip={() => {
-              setShowChat(false)
-              const { completeGoal } = useGoalStore.getState()
-              completeGoal(goal.id)
-              cancelAllNotifications()
+            onReplan={async () => {
+              const now = new Date()
+              const currentTime = now.getHours() + now.getMinutes() / 60
+
+              const remainingSteps = goal.steps
+                .filter(s => !s.done)
+                .map(s => ({
+                  order: s.order,
+                  text: s.text,
+                  checkinTime: s.checkinTime,
+                  checkinMessage: s.checkinMessage,
+                }))
+
+              const result = await apiCall<{
+                canReplan: boolean
+                steps?: { order: number; text: string; checkinTime: number; checkinMessage: string }[]
+                reason?: string
+              }>('/process-goal/replan', {
+                goal: goal.text,
+                remainingSteps,
+                currentTime,
+              })
+
+              if (result?.canReplan && result.steps) {
+                // 기존 완료 단계 + 새 단계로 교체
+                const doneSteps = goal.steps.filter(s => s.done)
+                const newSteps = [
+                  ...doneSteps,
+                  ...result.steps.map(s => ({ ...s, done: false, revealed: false })),
+                ]
+                const { updateSteps } = useGoalStore.getState()
+                updateSteps(goal.id, newSteps)
+
+                // 알림 재스케줄
+                await cancelAllNotifications()
+                await scheduleStepNotifications(goal.text, result.steps)
+
+                return 'replanned' as const
+              } else {
+                // 리플랜 불가 → 도전 마무리
+                const { completeGoal } = useGoalStore.getState()
+                completeGoal(goal.id)
+                await cancelAllNotifications()
+                return 'ended' as const
+              }
             }}
             onClose={() => setShowChat(false)}
           />
@@ -185,7 +216,7 @@ function GoalCard({ goal, onOpenChat }: { goal: Goal; onOpenChat: () => void }) 
           const prevStepsDone = goal.steps
             .filter(s => s.order < step.order)
             .every(s => s.done)
-          const isRevealed = step.done || (step.order === goal.currentStep && currentHour >= step.checkinTime - 0.5 && prevStepsDone)
+          const isRevealed = step.done || step.revealed || (step.order === goal.currentStep && currentHour >= step.checkinTime && prevStepsDone)
           const isHighlighted = highlightStep === step.order
 
           // 히든 문구 (단계마다 다르게)
@@ -241,7 +272,7 @@ function GoalCard({ goal, onOpenChat }: { goal: Goal; onOpenChat: () => void }) 
       </div>
 
       {/* 현재 단계 — 체크인 버튼 (pausedUntil이면 안 보임) */}
-      {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && goal.steps.filter(s => s.order < currentStepData.order).every(s => s.done) && !(goal.pausedUntil && new Date() < new Date(goal.pausedUntil)) && (
+      {currentStepData && !currentStepData.done && (currentStepData.revealed || currentHour >= currentStepData.checkinTime) && goal.steps.filter(s => s.order < currentStepData.order).every(s => s.done) && !(goal.pausedUntil && new Date() < new Date(goal.pausedUntil)) && (
         <div className="mt-1">
           <button
             onClick={onOpenChat}

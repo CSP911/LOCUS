@@ -133,7 +133,6 @@ export function GoalInput() {
       : (data.goal.original || data.goal.refined)
     const domain = (data.classification?.domain || 'Y') as Domain
 
-    // steps를 GoalStep 형식으로 변환
     const steps = (data.steps || []).map((s: any) => ({
       ...s,
       done: false,
@@ -143,8 +142,8 @@ export function GoalInput() {
     await throwStar(goalText)
 
     // 단계별 알림 스케줄링
-    if (data.steps && data.steps.length > 0) {
-      scheduleStepNotifications(goalText, data.steps)
+    if (steps.length > 0) {
+      scheduleStepNotifications(goalText, steps)
     }
     setGoalData(data)
   }

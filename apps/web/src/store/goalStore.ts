@@ -8,8 +8,9 @@ export interface GoalStep {
   text: string
   checkinTime: number       // 예정 시간 (6~23)
   checkinMessage: string
-  done: boolean             // 완료 여���
+  done: boolean             // 완료 여부
   doneAt?: number           // 실제 완료 시간 (시.분 소수점, 예: 14.5 = 14시 30분)
+  revealed?: boolean        // 알림 수신으로 활성화됨
 }
 
 export interface Goal {
@@ -53,6 +54,11 @@ interface GoalStore {
   pauseToday: (id: string) => void    // 오늘은 여기까지 — 내일 이어서
   getActiveGoal: () => Goal | undefined
   hasActiveGoal: () => boolean
+
+  // Step reveal (알림 수신 시)
+  revealStep: (stepOrder: number) => void
+  // 리플랜: 남은 단계 시간 업데이트
+  updateSteps: (goalId: string, newSteps: GoalStep[]) => void
 
   // Record actions
   checkIn: (goalId: string, achieved: boolean, smallAction?: string) => void
@@ -113,6 +119,28 @@ export const useGoalStore = create<GoalStore>()(
               currentStep: nextStep,
               active: !allDone,
             }
+          }),
+        })),
+
+      revealStep: (stepOrder: number) => {
+        set(s => ({
+          goals: s.goals.map(g => {
+            if (!g.active) return g
+            return {
+              ...g,
+              steps: g.steps.map(step =>
+                step.order === stepOrder ? { ...step, revealed: true } : step
+              ),
+            }
+          }),
+        }))
+      },
+
+      updateSteps: (goalId: string, newSteps: GoalStep[]) =>
+        set(s => ({
+          goals: s.goals.map(g => {
+            if (g.id !== goalId) return g
+            return { ...g, steps: newSteps }
           }),
         })),
 

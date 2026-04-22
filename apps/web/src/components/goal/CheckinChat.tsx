@@ -1,178 +1,124 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { apiCall } from '@/lib/api'
+import { useState } from 'react'
 
 interface CheckinChatProps {
   goal: string
   stepText: string
   checkinMessage: string
   onComplete: () => void
-  onDeferToday: () => void
-  onDeferLater: () => void
-  onSkip: () => void
+  onReplan: () => Promise<'replanned' | 'ended'>
   onClose: () => void
 }
 
-interface ChatMessage {
-  from: 'system' | 'user'
-  text: string
-}
-
 /**
- * CheckinChat — 채팅형 체크인
+ * CheckinChat — 체크인 확인
  *
- * 알람 시간에 뜨는 대화 인터페이스.
- * 숏컷 버튼 + 자유 텍스트 입력 가능.
- * LLM이 응답하고 다음 액션 결정.
+ * "했어요" → 단계 완료
+ * "이따 할게요" → LLM 리플랜 → 성공 시 재스케줄 / 실패 시 도전 마무리
  */
-export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDeferToday, onDeferLater, onSkip, onClose }: CheckinChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { from: 'system', text: checkinMessage },
-  ])
-  const [input, setInput] = useState('')
+export function CheckinChat({ stepText, checkinMessage, onComplete, onReplan, onClose }: CheckinChatProps) {
   const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [result, setResult] = useState<'replanned' | 'ended' | null>(null)
 
-  async function sendMessage(text: string) {
-    if (loading || done) return
+  async function handleDefer() {
     setLoading(true)
-    setMessages(prev => [...prev, { from: 'user', text }])
-    setInput('')
-
-    const result = await apiCall<{
-      reaction: string
-      action: 'complete' | 'defer_today' | 'defer_later' | 'skip'
-    }>('/checkin-respond', { goal, stepText, userMessage: text })
-
-    if (result) {
-      setMessages(prev => [...prev, { from: 'system', text: result.reaction }])
-
-      // 2초 후 액션 처리
-      setTimeout(() => {
-        setDone(true)
-        if (result.action === 'complete') onComplete()
-        else if (result.action === 'skip') onSkip()
-        else if (result.action === 'defer_today') onDeferToday()
-        else onDeferLater()
-      }, 2000)
-    } else {
-      // fallback
-      setMessages(prev => [...prev, { from: 'system', text: '알겠어요.' }])
-      setTimeout(() => { setDone(true); onDeferLater() }, 1500)
-    }
-
+    const res = await onReplan()
+    setResult(res)
     setLoading(false)
+  }
+
+  // 리플랜 결과 표시
+  if (result) {
+    return (
+      <div
+        className="absolute inset-0 z-30 flex items-center justify-center"
+        style={{ background: 'rgba(6,8,13,0.96)', backdropFilter: 'blur(12px)' }}
+      >
+        <div className="w-full max-w-xs px-5 text-center">
+          <p style={{
+            color: result === 'replanned' ? 'rgba(100,200,150,0.7)' : 'rgba(255,255,255,0.5)',
+            fontSize: 14,
+            lineHeight: 1.6,
+            marginBottom: 20,
+          }}>
+            {result === 'replanned'
+              ? '알림 시간을 다시 잡았어요.'
+              : '오늘은 여기까지로 할게요.'}
+          </p>
+          <button
+            onClick={onClose}
+            className="w-full py-3 rounded-xl text-sm"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '0.5px solid rgba(255,255,255,0.1)',
+              color: 'rgba(255,255,255,0.4)',
+            }}
+          >
+            확인
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col"
+      className="absolute inset-0 z-30 flex items-center justify-center"
       style={{ background: 'rgba(6,8,13,0.96)', backdropFilter: 'blur(12px)' }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{stepText}</p>
-        <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>닫기</button>
-      </div>
+      <div className="w-full max-w-xs px-5">
+        {/* 체크인 메시지 */}
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, lineHeight: 1.6, marginBottom: 6 }}>
+          {checkinMessage}
+        </p>
+        <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, marginBottom: 24 }}>
+          {stepText}
+        </p>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`max-w-[80%] rounded-xl px-3 py-2 ${msg.from === 'user' ? 'self-end' : 'self-start'}`}
-            style={{
-              background: msg.from === 'user'
-                ? 'rgba(100,200,150,0.1)'
-                : 'rgba(255,255,255,0.04)',
-              border: `0.5px solid ${msg.from === 'user'
-                ? 'rgba(100,200,150,0.15)'
-                : 'rgba(255,255,255,0.06)'}`,
-            }}
-          >
-            <p style={{
-              color: msg.from === 'user'
-                ? 'rgba(100,200,150,0.8)'
-                : 'rgba(255,255,255,0.6)',
-              fontSize: 13,
-              lineHeight: 1.5,
-            }}>
-              {msg.text}
-            </p>
-          </div>
-        ))}
-
-        {loading && (
-          <div className="self-start rounded-xl px-3 py-2"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.06)' }}>
-            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>...</p>
-          </div>
-        )}
-      </div>
-
-      {/* Shortcuts + Input */}
-      {!done && (
-        <div className="px-4 pb-4">
-          {/* 숏컷 버튼 */}
-          {messages.length <= 1 && !loading && (
-            <div className="flex gap-2 mb-2">
-              <button
-                onClick={() => sendMessage('했어요')}
-                className="px-3 py-1.5 rounded-lg text-xs"
-                style={{
-                  background: 'rgba(100,200,150,0.1)',
-                  border: '0.5px solid rgba(100,200,150,0.2)',
-                  color: 'rgba(100,200,150,0.7)',
-                }}
-              >
-                했어요 ✓
-              </button>
-              <button
-                onClick={() => sendMessage('상황이 안 돼요')}
-                className="px-3 py-1.5 rounded-lg text-xs"
-                style={{
-                  background: 'rgba(255,200,100,0.06)',
-                  border: '0.5px solid rgba(255,200,100,0.12)',
-                  color: 'rgba(255,200,100,0.5)',
-                }}
-              >
-                상황이 안 돼요
-              </button>
-            </div>
-          )}
-
-          {/* 자유 입력 */}
-          <div className="flex gap-2">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value.slice(0, 100))}
-              onKeyDown={e => { if (e.key === 'Enter' && input.trim()) sendMessage(input.trim()) }}
-              placeholder="자유롭게 말해도 돼요..."
-              disabled={loading || done}
-              className="flex-1 px-3 py-2.5 rounded-xl text-sm text-white"
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: '0.5px solid rgba(255,255,255,0.11)',
-                fontSize: 13,
-              }}
-            />
+        {/* 2버튼 or 로딩 */}
+        {loading ? (
+          <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, textAlign: 'center' }}>
+            시간 다시 잡는 중...
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
             <button
-              onClick={() => { if (input.trim()) sendMessage(input.trim()) }}
-              disabled={!input.trim() || loading || done}
-              className="px-3 py-2.5 rounded-xl text-xs"
+              onClick={onComplete}
+              className="w-full py-3 rounded-xl text-sm"
               style={{
-                background: 'rgba(255,255,255,0.06)',
-                color: 'rgba(255,255,255,0.4)',
+                background: 'rgba(100,200,150,0.1)',
+                border: '0.5px solid rgba(100,200,150,0.2)',
+                color: 'rgba(100,200,150,0.8)',
               }}
             >
-              보내기
+              했어요
+            </button>
+            <button
+              onClick={handleDefer}
+              className="w-full py-3 rounded-xl text-sm"
+              style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: '0.5px solid rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.35)',
+              }}
+            >
+              이따 할게요
             </button>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* 닫기 */}
+        {!loading && (
+          <button
+            onClick={onClose}
+            className="w-full mt-4"
+            style={{ color: 'rgba(255,255,255,0.12)', fontSize: 11 }}
+          >
+            닫기
+          </button>
+        )}
+      </div>
     </div>
   )
 }

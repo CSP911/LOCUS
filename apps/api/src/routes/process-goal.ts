@@ -47,6 +47,89 @@ processGoalRouter.post('/plan', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ── Replan: 남은 단계 재배치 ────────────────────
+const replanSchema = z.object({
+  goal: z.string().min(1).max(100),
+  remainingSteps: z.array(z.object({
+    order: z.number(),
+    text: z.string(),
+    checkinTime: z.number(),
+    checkinMessage: z.string(),
+  })),
+  avoidHours: z.array(z.number()).optional(),
+  currentTime: z.number(),
+})
+
+processGoalRouter.post('/replan', async (req, res, next) => {
+  try {
+    const data = replanSchema.parse(req.body)
+    let result
+    try {
+      result = await replanSteps(data)
+    } catch (err) {
+      console.error('[replan] Claude error:', err)
+      result = { canReplan: false, reason: '리플랜 처리 중 오류 발생' }
+    }
+    res.json(result)
+  } catch (err) { next(err) }
+})
+
+async function replanSteps(data: z.infer<typeof replanSchema>) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+
+  const currentHour = Math.floor(data.currentTime)
+  const currentMin = String(Math.round((data.currentTime % 1) * 60)).padStart(2, '0')
+  const avoidInfo = data.avoidHours?.length
+    ? `피할 시간: ${data.avoidHours.sort((a, b) => a - b).join(', ')}시`
+    : '피할 시간 없음'
+
+  const stepsInfo = data.remainingSteps.map(s =>
+    `  ${s.order}. "${s.text}" (원래 ${s.checkinTime}시)`
+  ).join('\n')
+
+  const message = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 400,
+    system: `사용자가 체크인을 미뤘습니다. 남은 단계의 시간을 재배치해주세요. JSON만 반환하세요.
+
+■ 응답 형식 (리플랜 가능한 경우):
+{
+  "canReplan": true,
+  "steps": [
+    { "order": 1, "text": "단계 내용", "checkinTime": 15.5, "checkinMessage": "메시지" },
+    ...
+  ]
+}
+
+■ 응답 형식 (리플랜 불가 — 오늘 남은 시간 부족):
+{
+  "canReplan": false,
+  "reason": "오늘은 여기까지"
+}
+
+■ 규칙:
+- 현재 시간 이후로만 배치 (최소 30분 뒤부터)
+- checkinTime은 소수점 (예: 15.5 = 15:30)
+- 각 단계 간격 최소 30분(0.5)
+- 23.5(23:30) 이후로는 배치 금지
+- 남은 가용 시간에 단계를 다 넣을 수 없으면 canReplan: false
+- 단계 내용(text)과 메시지(checkinMessage)는 유지, 시간만 변경
+- 피할 시간대 제외
+
+■ 절대 금지: 위로/힐링/진단/조언`,
+    messages: [{
+      role: 'user',
+      content: `목표: "${data.goal}"\n현재 시간: ${currentHour}:${currentMin}\n${avoidInfo}\n\n남은 단계:\n${stepsInfo}`,
+    }],
+  })
+
+  const raw = message.content[0].type === 'text' ? message.content[0].text : '{}'
+  const clean = raw.replace(/```json|```/g, '').trim()
+  const jsonMatch = clean.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('No JSON found in response')
+  return JSON.parse(jsonMatch[0])
+}
+
 // 기존 호환용 — 한 번에 처리
 const legacySchema = z.object({
   goal: z.string().min(1).max(100),
