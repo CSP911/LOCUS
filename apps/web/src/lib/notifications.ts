@@ -39,8 +39,19 @@ export async function scheduleStepNotifications(
       }
     }).filter(Boolean)
 
+    console.log('[noti] scheduling', notifications.length, 'of', steps.length, 'steps')
+    steps.forEach(s => {
+      const d = new Date()
+      d.setHours(s.checkinTime, 0, 0, 0)
+      console.log(`[noti]   step ${s.order}: ${s.checkinTime}시 → ${d <= new Date() ? 'SKIPPED (past)' : 'OK'}`)
+    })
+
     if (notifications.length > 0) {
       await LocalNotifications.schedule({ notifications: notifications as any })
+      const after = await LocalNotifications.getPending()
+      console.log('[noti] pending after schedule:', after.notifications.length)
+    } else {
+      console.log('[noti] no future notifications to schedule')
     }
 
     // 알림 탭 리스너 등록

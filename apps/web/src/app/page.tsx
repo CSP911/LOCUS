@@ -10,6 +10,7 @@ import { SignalLine } from '@/components/signal/SignalLine'
 import { Dashboard } from '@/components/dashboard/Dashboard'
 import { WeeklyReport } from '@/components/dashboard/WeeklyReport'
 import { InsightPage } from '@/components/insight/InsightPage'
+import { sendTestNotification } from '@/lib/test-notification'
 
 const StarField = dynamic(
   () => import('@/components/field/StarField').then(m => ({ default: m.StarField })),
@@ -36,6 +37,15 @@ export default function FieldPage() {
       <GoalMain />
 
       {/* 상단 버튼 */}
+      <div className="absolute top-4 left-4 z-10">
+        <button
+          onClick={() => sendTestNotification()}
+          className="px-2 py-1 rounded text-xs"
+          style={{ background: 'rgba(255,100,100,0.1)', color: 'rgba(255,100,100,0.5)', border: '0.5px solid rgba(255,100,100,0.2)' }}
+        >
+          알림 테스트
+        </button>
+      </div>
       <div className="absolute top-4 right-4 z-10 flex gap-2">
         <button
           onClick={() => setShowInsight(true)}

@@ -181,7 +181,11 @@ function GoalCard({ goal, onOpenChat }: { goal: Goal; onOpenChat: () => void }) 
       {/* 단계 리스트 — 알람 전엔 숨김, 알람 시 공개 */}
       <div className="flex flex-col gap-1.5 mb-3">
         {goal.steps.map(step => {
-          const isRevealed = step.done || (step.order === goal.currentStep && currentHour >= step.checkinTime - 0.5)
+          // 공개 조건: 완료됨 OR (현재 단계이면서 시간 됐고, 이전 단계가 모두 완료)
+          const prevStepsDone = goal.steps
+            .filter(s => s.order < step.order)
+            .every(s => s.done)
+          const isRevealed = step.done || (step.order === goal.currentStep && currentHour >= step.checkinTime - 0.5 && prevStepsDone)
           const isHighlighted = highlightStep === step.order
 
           // 히든 문구 (단계마다 다르게)
@@ -237,7 +241,7 @@ function GoalCard({ goal, onOpenChat }: { goal: Goal; onOpenChat: () => void }) 
       </div>
 
       {/* 현재 단계 — 체크인 버튼 (pausedUntil이면 안 보임) */}
-      {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && !(goal.pausedUntil && new Date() < new Date(goal.pausedUntil)) && (
+      {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && goal.steps.filter(s => s.order < currentStepData.order).every(s => s.done) && !(goal.pausedUntil && new Date() < new Date(goal.pausedUntil)) && (
         <div className="mt-1">
           <button
             onClick={onOpenChat}
