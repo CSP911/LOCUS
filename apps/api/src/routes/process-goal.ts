@@ -92,10 +92,11 @@ async function analyzeGoal(goal: string, clarifyAnswer?: string) {
     "refined": "구체화된 목표 (false일 때)"
   },
   "classification": {
-    "domain": "X/Y/Z",
-    "intensity": 1-5,
-    "direction": "in/out",
-    "nature": ["unresolved"/"recurring"/"onetime"]
+    "layers": { "body": 0.0, "feeling": 0.0, "thought": 0.0, "action": 0.0, "awareness": 0.0 },
+    "spectrum": { "internal": 0.0, "external": 0.0 },
+    "weight": 0.0,
+    "nature": ["unresolved"/"recurring"/"onetime"],
+    "domain": "X/Y/Z"
   },
   "timeType": "target" 또는 "avoid",
   "timeQuestion": "시간 관련 안내 문구"
@@ -107,9 +108,26 @@ async function analyzeGoal(goal: string, clarifyAnswer?: string) {
 - "avoid": 하루 중 자유롭게 할 수 있는 경우 (독서, 운동, 공부 등)
   → timeQuestion: "피하고 싶은 시간대가 있나요?" 느낌
 
-■ 분류:
-- domain: X(건강/몸), Y(일/공부/성과), Z(관계/사람)
-- needsClarification: "했다/안했다" 판단 어려우면 true
+■ 분류 (오온 기반 5레이어 + 스펙트럼):
+- classification 형식:
+  {
+    "layers": { "body": 0.0~1.0, "feeling": 0.0~1.0, "thought": 0.0~1.0, "action": 0.0~1.0, "awareness": 0.0~1.0 },
+    "spectrum": { "internal": 0.0~1.0, "external": 0.0~1.0 },
+    "weight": 0.0~1.0,
+    "nature": ["unresolved"/"recurring"/"onetime"]
+  }
+- layers 합산 = 1.0 (비율)
+  - body: 몸, 감각, 물리적 행동 (운동, 수면, 건강)
+  - feeling: 감정, 에너지, 기분 (스트레스, 기분전환)
+  - thought: 생각, 판단, 인식 (독서, 공부, 계획)
+  - action: 습관, 의지, 실행 (루틴, 도전, 반복)
+  - awareness: 자각, 패턴 인식 (성찰, 명상, 되돌아봄)
+- spectrum: internal(내면) + external(바깥) = 1.0
+- weight: 무게감 (0.0 가벼움 ~ 1.0 무거움)
+- nature: 반복/미결/일회
+- 하위 호환용 domain도 포함: X(body 높으면)/Y(thought+action 높으면)/Z(feeling+관계성 높으면)
+
+■ needsClarification: "했다/안했다" 판단 어려우면 true
 
 ■ 절대 금지: 위로/힐링/진단/조언. 감정 라벨 금지.`,
     messages: [{ role: 'user', content: userMsg }],
@@ -136,7 +154,13 @@ function analyzeFallback(goal: string, clarifyAnswer?: string) {
   const hasDeadline = /미팅|회의|발표|약속|면접|시험/.test(finalGoal)
   return {
     goal: { original: goal, needsClarification: false, clarifyQuestion: null, refined: finalGoal },
-    classification: { domain: 'Y', intensity: 3, direction: 'in', nature: ['onetime'] },
+    classification: {
+      layers: { body: 0.1, feeling: 0.1, thought: 0.3, action: 0.4, awareness: 0.1 },
+      spectrum: { internal: 0.6, external: 0.4 },
+      weight: 0.5,
+      nature: ['onetime'] as const,
+      domain: 'Y' as const,
+    },
     timeType: hasDeadline ? 'target' : 'avoid',
     timeQuestion: hasDeadline ? '몇 시에 예정인가요?' : '피하고 싶은 시간대가 있나요?',
   }

@@ -62,7 +62,8 @@ async function analyzeWithClaude(goals: any[], date: string) {
 {
   "date": "${date}",
   "profile": {
-    "domains": { "X": 0.0~1.0, "Y": 0.0~1.0, "Z": 0.0~1.0 },
+    "layers": { "body": 0.0~1.0, "feeling": 0.0~1.0, "thought": 0.0~1.0, "action": 0.0~1.0, "awareness": 0.0~1.0 },
+    "spectrum": { "internal": 0.0~1.0, "external": 0.0~1.0 },
     "activeHours": [가장 활발한 시간대 정수 배열],
     "successRate": 0.0~1.0,
     "deferPattern": { "요일": 빈도 0.0~1.0 },
@@ -81,7 +82,8 @@ async function analyzeWithClaude(goals: any[], date: string) {
 }
 
 ■ 분석 기준:
-- domains: X(건강), Y(성과), Z(관계) 비율
+- layers: body(몸), feeling(감정), thought(생각), action(행동), awareness(자각) 비율 합산=1.0
+- spectrum: internal(내면)/external(바깥) 비율 합산=1.0
 - activeHours: doneAt 시간대 중 가장 많이 나오는 것
 - successRate: 전체 도전 중 전부 완료한 비율
 - deferPattern: 요일별 defer/pause 빈도

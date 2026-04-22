@@ -178,10 +178,13 @@ export const useStarStore = create<StarStore>()(
           const normIntensity = Math.min(1, Math.max(0.1, intensity / 5))
 
           const weight: Weight = {
+            layers: { body: 0.1, feeling: 0.2, thought: 0.3, action: 0.3, awareness: 0.1 },
+            spectrum: { internal: direction === 'in' ? 0.7 : 0.3, external: direction === 'out' ? 0.7 : 0.3 },
+            weight: normIntensity,
+            nature,
             domain,
             intensity: Math.round(intensity) as 1 | 2 | 3 | 4 | 5,
             direction,
-            nature,
           }
 
           // 반복 감지
