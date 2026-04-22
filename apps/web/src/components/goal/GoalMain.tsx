@@ -14,18 +14,54 @@ const DOMAIN_COLORS: Record<Domain, string> = {
 export function GoalMain() {
   const goals = useGoalStore(s => s.goals)
   const goal = goals.find(g => g.active) || null
+  const [showChat, setShowChat] = useState(false)
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
-      <div className="flex-1" />
-      <div className="pointer-events-auto px-4 pb-24">
-        {!goal ? (
-          <EmptyState />
-        ) : (
-          <GoalCard goal={goal} />
-        )}
+    <>
+      <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
+        <div className="flex-1" />
+        <div className="pointer-events-auto px-4 pb-24">
+          {!goal ? (
+            <EmptyState />
+          ) : (
+            <GoalCard goal={goal} onOpenChat={() => setShowChat(true)} />
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* 채팅 오버레이 — 최상위에서 렌더 */}
+      {showChat && goal && (() => {
+        const step = goal.steps.find(s => s.order === goal.currentStep)
+        if (!step || step.done) return null
+        return (
+          <CheckinChat
+            goal={goal.text}
+            stepText={step.text}
+            checkinMessage={step.checkinMessage}
+            onComplete={() => {
+              setShowChat(false)
+              const { completeStep } = useGoalStore.getState()
+              completeStep(goal.id, step.order)
+            }}
+            onDeferToday={() => {
+              setShowChat(false)
+              const { pauseToday } = useGoalStore.getState()
+              pauseToday(goal.id)
+            }}
+            onDeferLater={() => {
+              setShowChat(false)
+              // 그냥 닫기 — 나중에 다시 체크인 가능
+            }}
+            onSkip={() => {
+              setShowChat(false)
+              const { completeGoal } = useGoalStore.getState()
+              completeGoal(goal.id)
+            }}
+            onClose={() => setShowChat(false)}
+          />
+        )
+      })()}
+    </>
   )
 }
 
@@ -33,19 +69,16 @@ function EmptyState() {
   return null
 }
 
-function GoalCard({ goal }: { goal: Goal }) {
-  const completeStep = useGoalStore(s => s.completeStep)
-  const completeGoal = useGoalStore(s => s.completeGoal)
-
-  // 1분마다 현재 시간 갱신 — 체크인 시간 도달 시 버튼 활성화
+function GoalCard({ goal, onOpenChat }: { goal: Goal; onOpenChat: () => void }) {
+  // 30초마다 현재 시간 갱신
   const [now, setNow] = useState(new Date())
   useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 30000) // 30초마다
+    const interval = setInterval(() => setNow(new Date()), 30000)
     return () => clearInterval(interval)
   }, [])
   const currentHour = now.getHours() + now.getMinutes() / 60
 
-  // 알림 탭으로 왔을 때 해당 단계 하이라이트
+  // 알림 탭 하이라이트
   const [highlightStep, setHighlightStep] = useState<number | null>(null)
   useEffect(() => {
     function checkHash() {
@@ -67,33 +100,6 @@ function GoalCard({ goal }: { goal: Goal }) {
   const allDone = doneCount === totalSteps && totalSteps > 0
 
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
-  const [showChat, setShowChat] = useState(false)
-  const [processing, setProcessing] = useState(false)
-
-  function handleChatComplete() {
-    if (!currentStepData) return
-    setShowChat(false)
-    setProcessing(true)
-    completeStep(goal.id, currentStepData.order)
-
-    if (currentStepData.order === totalSteps) {
-      setFeedbackMessage('전부 해냈어요!')
-    } else {
-      setFeedbackMessage(`${currentStepData.order}단계 완료.`)
-    }
-    setTimeout(() => { setFeedbackMessage(null); setProcessing(false) }, 3000)
-  }
-
-  function handleChatDefer() {
-    setShowChat(false)
-    // defer — 아무것도 안 함. 나중에 다시 할 수 있음.
-  }
-
-  function handleChatSkip() {
-    setShowChat(false)
-    setProcessing(true)
-    completeGoal(goal.id)
-  }
 
   // 전부 완료
   if (allDone) {
@@ -216,11 +222,11 @@ function GoalCard({ goal }: { goal: Goal }) {
         })}
       </div>
 
-      {/* 현재 단계 — 체크인 버튼 (채팅 열기) */}
-      {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && !processing && (
+      {/* 현재 단계 — 체크인 버튼 (pausedUntil이면 안 보임) */}
+      {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && !(goal.pausedUntil && new Date() < new Date(goal.pausedUntil)) && (
         <div className="mt-1">
           <button
-            onClick={() => setShowChat(true)}
+            onClick={onOpenChat}
             className="px-4 py-2 rounded-xl text-xs w-full"
             style={{
               background: 'rgba(100,200,150,0.08)',
@@ -233,17 +239,11 @@ function GoalCard({ goal }: { goal: Goal }) {
         </div>
       )}
 
-      {/* 채팅형 체크인 오버레이 */}
-      {showChat && currentStepData && (
-        <CheckinChat
-          goal={goal.text}
-          stepText={currentStepData.text}
-          checkinMessage={currentStepData.checkinMessage}
-          onComplete={handleChatComplete}
-          onDefer={handleChatDefer}
-          onSkip={handleChatSkip}
-          onClose={() => setShowChat(false)}
-        />
+      {/* 오늘 일시정지 안내 */}
+      {goal.pausedUntil && new Date() < new Date(goal.pausedUntil) && (
+        <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, marginTop: 6 }}>
+          내일 이어서 진행돼요.
+        </p>
       )}
 
       {/* 피드백 메시지 */}

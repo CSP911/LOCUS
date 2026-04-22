@@ -8,7 +8,8 @@ interface CheckinChatProps {
   stepText: string
   checkinMessage: string
   onComplete: () => void
-  onDefer: () => void
+  onDeferToday: () => void
+  onDeferLater: () => void
   onSkip: () => void
   onClose: () => void
 }
@@ -25,7 +26,7 @@ interface ChatMessage {
  * 숏컷 버튼 + 자유 텍스트 입력 가능.
  * LLM이 응답하고 다음 액션 결정.
  */
-export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDefer, onSkip, onClose }: CheckinChatProps) {
+export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDeferToday, onDeferLater, onSkip, onClose }: CheckinChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { from: 'system', text: checkinMessage },
   ])
@@ -42,7 +43,7 @@ export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDefe
 
     const result = await apiCall<{
       reaction: string
-      action: 'complete' | 'defer' | 'skip'
+      action: 'complete' | 'defer_today' | 'defer_later' | 'skip'
     }>('/checkin-respond', { goal, stepText, userMessage: text })
 
     if (result) {
@@ -53,12 +54,13 @@ export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDefe
         setDone(true)
         if (result.action === 'complete') onComplete()
         else if (result.action === 'skip') onSkip()
-        else onDefer()
+        else if (result.action === 'defer_today') onDeferToday()
+        else onDeferLater()
       }, 2000)
     } else {
       // fallback
       setMessages(prev => [...prev, { from: 'system', text: '알겠어요.' }])
-      setTimeout(() => { setDone(true); onDefer() }, 1500)
+      setTimeout(() => { setDone(true); onDeferLater() }, 1500)
     }
 
     setLoading(false)

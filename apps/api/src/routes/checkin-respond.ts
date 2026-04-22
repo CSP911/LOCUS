@@ -47,13 +47,14 @@ async function respondWithClaude(data: { goal: string; stepText: string; userMes
 ■ 응답 형식:
 {
   "reaction": "부담 없는 리액션 한 줄",
-  "action": "complete" | "defer" | "skip"
+  "action": "complete" | "defer_today" | "defer_later" | "skip"
 }
 
 ■ action 판단:
 - "complete": 사용자가 했다고 말함 ("했어요", "다 읽었어", "끝남" 등)
-- "defer": 그 외 모든 경우 — 못 했거나, 힘들거나, 상황이 안 되거나. 내일 이어가면 됨.
-- "skip": 명시적으로 포기 ("넘길게요", "안 할래", "포기" 등)
+- "defer_today": 오늘은 더 이상 진행이 어려움 — 내일 이어서 ("두고 왔어", "오늘은 무리", "상황이 안 돼" 등)
+- "defer_later": 지금은 안 되지만 오늘 중 나중에 가능 ("이따가 할게", "좀 이따가", "나중에" 등)
+- "skip": 이 도전 자체를 포기 ("넘길게요", "안 할래", "관둘래" 등)
 
 ■ 핵심 스탠스:
 - 못 해도 괜찮다. 내일 이어가면 된다. 느림의 미학.
@@ -64,7 +65,8 @@ async function respondWithClaude(data: { goal: string; stepText: string; userMes
 - 판단/조언/위로/격려 금지 ("힘내세요" X, "해야 해요" X, "다음엔 꼭" X)
 - 부담 없고 담백한 톤. 한 줄, 짧게.
 - complete: 사실 인정 ("해냈네요.", "끝냈군요.")
-- defer: 수용 ("괜찮아요. 내일 이어가면 돼요.", "천천히요.")
+- defer_today: 오늘 마무리 수용 ("괜찮아요. 내일 이어가면 돼요.", "천천히요.")
+- defer_later: 나중에 다시 ("알겠어요. 이따가 다시 물어볼게요.")
 - skip: 판단 없이 ("알겠어요.")`,
     messages: [{
       role: 'user',
@@ -82,13 +84,16 @@ async function respondWithClaude(data: { goal: string; stepText: string; userMes
 function respondFallback(data: { userMessage: string }) {
   const msg = data.userMessage.toLowerCase()
   if (/했|끝|완료|다 읽|함/.test(msg)) {
-    return { reaction: '해냈네요.', action: 'complete', smallSuggestion: null }
+    return { reaction: '해냈네요.', action: 'complete' }
   }
-  if (/넘길|안 할|포기|패스/.test(msg)) {
-    return { reaction: '알겠어요. 내일 다시.', action: 'skip', smallSuggestion: null }
+  if (/넘길|안 할|포기|패스|관둘/.test(msg)) {
+    return { reaction: '알겠어요.', action: 'skip' }
   }
-  if (/나중|이따|두고|못/.test(msg)) {
-    return { reaction: '괜찮아요. 나중에 이어서 해도 돼요.', action: 'defer', smallSuggestion: null }
+  if (/이따|나중|좀 있다|잠깐/.test(msg)) {
+    return { reaction: '알겠어요. 이따가 다시 물어볼게요.', action: 'defer_later' }
   }
-  return { reaction: '알겠어요.', action: 'defer', smallSuggestion: null }
+  if (/두고|못|무리|안 돼|오늘은/.test(msg)) {
+    return { reaction: '괜찮아요. 내일 이어가면 돼요.', action: 'defer_today' }
+  }
+  return { reaction: '괜찮아요. 내일 이어가면 돼요.', action: 'defer_today' }
 }

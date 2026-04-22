@@ -14,13 +14,14 @@ export interface GoalStep {
 
 export interface Goal {
   id: string
-  text: string              // "30분 달리기", "1챕터 읽기"
-  domain: Domain            // 자동 분류
-  date: string              // YYYY-MM-DD
+  text: string
+  domain: Domain
+  date: string
   createdAt: string
   active: boolean
-  steps: GoalStep[]         // 단계별 플랜
-  currentStep: number       // 현재 진행 중인 단계 (order)
+  steps: GoalStep[]
+  currentStep: number
+  pausedUntil?: string      // ISO date — 이 날짜까지 체크인 안 함 (defer_today)
 }
 
 export interface DayRecord {
@@ -49,6 +50,7 @@ interface GoalStore {
   addGoal: (text: string, domain: Domain, steps?: GoalStep[]) => void
   completeGoal: (id: string) => void
   completeStep: (goalId: string, stepOrder: number) => void
+  pauseToday: (id: string) => void    // 오늘은 여기까지 — 내일 이어서
   getActiveGoal: () => Goal | undefined
   hasActiveGoal: () => boolean
 
@@ -165,6 +167,18 @@ export const useGoalStore = create<GoalStore>()(
           d.setDate(d.getDate() - 1)
         }
         return streak
+      },
+
+      pauseToday: (id: string) => {
+        // 내일 0시까지 체크인 안 함
+        const tomorrow = new Date()
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        tomorrow.setHours(0, 0, 0, 0)
+        set(s => ({
+          goals: s.goals.map(g =>
+            g.id === id ? { ...g, pausedUntil: tomorrow.toISOString() } : g
+          ),
+        }))
       },
 
       getActiveGoal: () =>
