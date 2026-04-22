@@ -3,8 +3,12 @@
 import { useEffect } from 'react'
 import { useProfileStore } from '@/store/profileStore'
 
-const DOMAIN_LABEL: Record<string, string> = { X: '건강', Y: '성과', Z: '관계' }
-const DOMAIN_COLOR: Record<string, string> = { X: '#7ec8e3', Y: '#ddd8b0', Z: '#f0a870' }
+const LAYER_LABEL: Record<string, string> = {
+  body: '몸', feeling: '감정', thought: '생각', action: '행동', awareness: '자각'
+}
+const LAYER_COLOR: Record<string, string> = {
+  body: '#7ec8e3', feeling: '#f0a870', thought: '#ddd8b0', action: '#a8d8a0', awareness: '#c4b0e8'
+}
 
 export function InsightPage({ onClose }: { onClose: () => void }) {
   const profile = useProfileStore(s => s.currentProfile)
@@ -43,30 +47,46 @@ export function InsightPage({ onClose }: { onClose: () => void }) {
           </p>
         ) : (
           <>
-            {/* 도메인 분포 */}
-            <Section title="관심 영역">
-              <div className="flex gap-1 h-2 rounded-full overflow-hidden mb-2">
-                {(['X', 'Y', 'Z'] as const).map(d => (
-                  <div
-                    key={d}
-                    style={{
-                      width: `${(profile.profile.domains[d] || 0) * 100}%`,
-                      background: DOMAIN_COLOR[d],
-                      opacity: 0.6,
-                      minWidth: profile.profile.domains[d] > 0 ? 4 : 0,
-                    }}
-                  />
-                ))}
-              </div>
-              <div className="flex gap-3">
-                {(['X', 'Y', 'Z'] as const).map(d => (
-                  <span key={d} className="flex items-center gap-1 text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: DOMAIN_COLOR[d] }} />
-                    {DOMAIN_LABEL[d]} {Math.round((profile.profile.domains[d] || 0) * 100)}%
-                  </span>
-                ))}
-              </div>
-            </Section>
+            {/* 레이어 분포 (오온) */}
+            {profile.profile.layers && (
+              <Section title="에너지 분포">
+                <div className="flex gap-1 h-2 rounded-full overflow-hidden mb-2">
+                  {Object.entries(profile.profile.layers).map(([key, val]) => (
+                    <div
+                      key={key}
+                      style={{
+                        width: `${(val || 0) * 100}%`,
+                        background: LAYER_COLOR[key] || '#888',
+                        opacity: 0.6,
+                        minWidth: val > 0 ? 3 : 0,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {Object.entries(profile.profile.layers).map(([key, val]) => (
+                    <span key={key} className="flex items-center gap-1 text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: LAYER_COLOR[key] || '#888' }} />
+                      {LAYER_LABEL[key] || key} {Math.round((val || 0) * 100)}%
+                    </span>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* 내면/외부 스펙트럼 */}
+            {profile.profile.spectrum && (
+              <Section title="방향">
+                <div className="flex gap-1 h-2 rounded-full overflow-hidden mb-2">
+                  <div style={{ width: `${(profile.profile.spectrum.internal || 0) * 100}%`, background: '#c4b0e8', opacity: 0.6 }} />
+                  <div style={{ width: `${(profile.profile.spectrum.external || 0) * 100}%`, background: '#7ec8e3', opacity: 0.6 }} />
+                </div>
+                <div className="flex justify-between text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                  <span>내면 {Math.round((profile.profile.spectrum.internal || 0) * 100)}%</span>
+                  <span>바깥 {Math.round((profile.profile.spectrum.external || 0) * 100)}%</span>
+                </div>
+              </Section>
+            )}
 
             {/* 성공률 */}
             <Section title="성공률">

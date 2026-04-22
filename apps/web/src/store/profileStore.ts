@@ -6,7 +6,9 @@ import { useGoalStore } from './goalStore'
 export interface UserProfile {
   date: string
   profile: {
-    domains: { X: number; Y: number; Z: number }
+    layers?: { body: number; feeling: number; thought: number; action: number; awareness: number }
+    spectrum?: { internal: number; external: number }
+    domains?: { X: number; Y: number; Z: number }  // legacy
     activeHours: number[]
     successRate: number
     deferPattern: Record<string, number>
