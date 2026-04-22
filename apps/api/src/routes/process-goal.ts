@@ -197,8 +197,8 @@ async function createPlan(data: { goal: string; refined?: string; timeType: stri
 - checkinMessage: 친근한 톤, 판단 없이
 
 ■ 시간 배치 규칙:
-- checkinTime은 반드시 6~23 사이의 정수 (예: 8, 11, 14, 21). 830 같은 형식 금지.
-- 각 단계의 checkinTime은 서로 달라야 함. 같은 시간에 여러 단계 배치 금지.
+- checkinTime은 6.0~23.5 사이의 소수점 1자리 (예: 8.0, 10.5, 14.25, 21.0). 시=정수부, 분=소수부(0.25=15분, 0.5=30분, 0.75=45분).
+- 각 단계의 checkinTime은 최소 30분(0.5) 이상 간격을 두어라.
 - 남은 가용 시간이 부족하면 단계 수를 2개로 줄여라.
 - timeType이 "target"이면: 목표 시점 기준으로 역산. 준비→리허설→실행 순서
 - timeType이 "avoid"이면: 피할 시간을 제외하고 배치

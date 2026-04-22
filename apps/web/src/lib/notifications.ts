@@ -24,8 +24,10 @@ export async function scheduleStepNotifications(
 
     const now = new Date()
     const notifications = steps.map((step) => {
+      const hours = Math.floor(step.checkinTime)
+      const minutes = Math.round((step.checkinTime - hours) * 60)
       const scheduleDate = new Date(now)
-      scheduleDate.setHours(step.checkinTime, 0, 0, 0)
+      scheduleDate.setHours(hours, minutes, 0, 0)
 
       if (scheduleDate <= now) return null
 
@@ -41,9 +43,11 @@ export async function scheduleStepNotifications(
 
     console.log('[noti] scheduling', notifications.length, 'of', steps.length, 'steps')
     steps.forEach(s => {
+      const h = Math.floor(s.checkinTime)
+      const m = Math.round((s.checkinTime - h) * 60)
       const d = new Date()
-      d.setHours(s.checkinTime, 0, 0, 0)
-      console.log(`[noti]   step ${s.order}: ${s.checkinTime}시 → ${d <= new Date() ? 'SKIPPED (past)' : 'OK'}`)
+      d.setHours(h, m, 0, 0)
+      console.log(`[noti]   step ${s.order}: ${h}:${String(m).padStart(2,'0')} → ${d <= new Date() ? 'SKIPPED (past)' : 'OK'}`)
     })
 
     if (notifications.length > 0) {
