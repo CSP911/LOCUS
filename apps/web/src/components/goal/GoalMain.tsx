@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useGoalStore, type Goal, type GoalStep } from '@/store/goalStore'
 import type { Domain } from '@locus/shared'
 
@@ -36,6 +36,14 @@ function GoalCard({ goal }: { goal: Goal }) {
   const completeStep = useGoalStore(s => s.completeStep)
   const completeGoal = useGoalStore(s => s.completeGoal)
 
+  // 1분마다 현재 시간 갱신 — 체크인 시간 도달 시 버튼 활성화
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 30000) // 30초마다
+    return () => clearInterval(interval)
+  }, [])
+  const currentHour = now.getHours() + now.getMinutes() / 60
+
   // 알림 탭으로 왔을 때 해당 단계 하이라이트
   const [highlightStep, setHighlightStep] = useState<number | null>(null)
   useEffect(() => {
@@ -58,21 +66,27 @@ function GoalCard({ goal }: { goal: Goal }) {
   const allDone = doneCount === totalSteps && totalSteps > 0
 
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
+  const [confirmAction, setConfirmAction] = useState<'done' | 'skip' | null>(null)
+  const [processing, setProcessing] = useState(false)
 
-  function handleStepDone(step: GoalStep) {
-    completeStep(goal.id, step.order)
+  function handleConfirmDone() {
+    if (!currentStepData || processing) return
+    setProcessing(true)
+    setConfirmAction(null)
+    completeStep(goal.id, currentStepData.order)
 
-    if (step.order === totalSteps) {
-      // 마지막 단계 완료
+    if (currentStepData.order === totalSteps) {
       setFeedbackMessage('전부 해냈어요!')
-      setTimeout(() => setFeedbackMessage(null), 3000)
     } else {
-      setFeedbackMessage(`${step.order}단계 완료. 다음은 언제든 준비되면.`)
-      setTimeout(() => setFeedbackMessage(null), 3000)
+      setFeedbackMessage(`${currentStepData.order}단계 완료. 다음은 언제든 준비되면.`)
     }
+    setTimeout(() => { setFeedbackMessage(null); setProcessing(false) }, 3000)
   }
 
-  function handleSkip() {
+  function handleConfirmSkip() {
+    if (processing) return
+    setProcessing(true)
+    setConfirmAction(null)
     completeGoal(goal.id)
   }
 
@@ -142,9 +156,6 @@ function GoalCard({ goal }: { goal: Goal }) {
       {/* 단계 리스트 — 알람 전엔 숨김, 알람 시 공개 */}
       <div className="flex flex-col gap-1.5 mb-3">
         {goal.steps.map(step => {
-          const now = new Date()
-          const currentHour = now.getHours() + now.getMinutes() / 60
-          // 공개 조건: 완료됨 OR 현재 단계이면서 체크인 시간이 됐거나 지남
           const isRevealed = step.done || (step.order === goal.currentStep && currentHour >= step.checkinTime - 0.5)
           const isHighlighted = highlightStep === step.order
 
@@ -201,31 +212,57 @@ function GoalCard({ goal }: { goal: Goal }) {
       </div>
 
       {/* 현재 단계 버튼 — 공개됐을 때만 */}
-      {currentStepData && !currentStepData.done && (() => {
-        const now = new Date()
-        const curHour = now.getHours() + now.getMinutes() / 60
-        return curHour >= currentStepData.checkinTime - 0.5
-      })() && (
-        <div className="flex gap-2 mt-1">
-          <button
-            onClick={() => handleStepDone(currentStepData)}
-            className="px-3 py-1.5 rounded-lg text-xs"
-            style={{
-              background: 'rgba(100,200,150,0.1)',
-              border: '0.5px solid rgba(100,200,150,0.2)',
-              color: 'rgba(100,200,150,0.7)',
-            }}
-          >
-            했어요 ✓
-          </button>
-          <button
-            onClick={handleSkip}
-            className="px-3 py-1.5 rounded-lg text-xs"
-            style={{ color: 'rgba(255,255,255,0.2)' }}
-          >
-            오늘은 넘길게요
-          </button>
-        </div>
+      {currentStepData && !currentStepData.done && currentHour >= currentStepData.checkinTime - 0.5 && !processing && (
+        confirmAction ? (
+          /* confirm 단계 */
+          <div className="mt-1">
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginBottom: 6 }}>
+              {confirmAction === 'done' ? '이 단계를 완료할까요?' : '오늘 도전을 넘길까요?'}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={confirmAction === 'done' ? handleConfirmDone : handleConfirmSkip}
+                className="px-3 py-1.5 rounded-lg text-xs"
+                style={{
+                  background: confirmAction === 'done' ? 'rgba(100,200,150,0.15)' : 'rgba(255,255,255,0.06)',
+                  border: `0.5px solid ${confirmAction === 'done' ? 'rgba(100,200,150,0.25)' : 'rgba(255,255,255,0.1)'}`,
+                  color: confirmAction === 'done' ? 'rgba(100,200,150,0.8)' : 'rgba(255,255,255,0.4)',
+                }}
+              >
+                네
+              </button>
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="px-3 py-1.5 rounded-lg text-xs"
+                style={{ color: 'rgba(255,255,255,0.2)' }}
+              >
+                아니요
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* 기본 버튼 */
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={() => setConfirmAction('done')}
+              className="px-3 py-1.5 rounded-lg text-xs"
+              style={{
+                background: 'rgba(100,200,150,0.1)',
+                border: '0.5px solid rgba(100,200,150,0.2)',
+                color: 'rgba(100,200,150,0.7)',
+              }}
+            >
+              했어요 ✓
+            </button>
+            <button
+              onClick={() => setConfirmAction('skip')}
+              className="px-3 py-1.5 rounded-lg text-xs"
+              style={{ color: 'rgba(255,255,255,0.2)' }}
+            >
+              오늘은 넘길게요
+            </button>
+          </div>
+        )
       )}
 
       {/* 피드백 메시지 */}

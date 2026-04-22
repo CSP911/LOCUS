@@ -13,7 +13,8 @@
     "type-check": "turbo run type-check",
     "clean": "turbo run clean",
     "debate": "npx tsx scripts/debate.ts",
-    "test-goal": "npx tsx scripts/test-goal.ts"
+    "test-goal": "npx tsx scripts/test-goal.ts",
+    "test-batch": "npx tsx scripts/test-goal-batch.ts"
   },
   "devDependencies": {
     "turbo": "^1.13.0",
