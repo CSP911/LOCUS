@@ -130,7 +130,7 @@ export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDefe
                 했어요 ✓
               </button>
               <button
-                onClick={() => sendMessage('아직 못 했어요')}
+                onClick={() => sendMessage('상황이 안 돼요')}
                 className="px-3 py-1.5 rounded-lg text-xs"
                 style={{
                   background: 'rgba(255,200,100,0.06)',
@@ -138,14 +138,7 @@ export function CheckinChat({ goal, stepText, checkinMessage, onComplete, onDefe
                   color: 'rgba(255,200,100,0.5)',
                 }}
               >
-                아직이요
-              </button>
-              <button
-                onClick={() => sendMessage('오늘은 넘길게요')}
-                className="px-3 py-1.5 rounded-lg text-xs"
-                style={{ color: 'rgba(255,255,255,0.2)' }}
-              >
-                넘길게요
+                상황이 안 돼요
               </button>
             </div>
           )}
