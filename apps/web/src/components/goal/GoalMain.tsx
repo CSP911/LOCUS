@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useGoalStore, type Goal, type GoalStep } from '@/store/goalStore'
 import { CheckinChat } from './CheckinChat'
+import { cancelAllNotifications } from '@/lib/notifications'
 import type { Domain } from '@locus/shared'
 
 const DOMAIN_COLORS: Record<Domain, string> = {
@@ -42,20 +43,25 @@ export function GoalMain() {
               setShowChat(false)
               const { completeStep } = useGoalStore.getState()
               completeStep(goal.id, step.order)
+              // 마지막 단계면 알림 전부 취소
+              if (step.order === goal.steps.length) {
+                cancelAllNotifications()
+              }
             }}
             onDeferToday={() => {
               setShowChat(false)
               const { pauseToday } = useGoalStore.getState()
               pauseToday(goal.id)
+              cancelAllNotifications()
             }}
             onDeferLater={() => {
               setShowChat(false)
-              // 그냥 닫기 — 나중에 다시 체크인 가능
             }}
             onSkip={() => {
               setShowChat(false)
               const { completeGoal } = useGoalStore.getState()
               completeGoal(goal.id)
+              cancelAllNotifications()
             }}
             onClose={() => setShowChat(false)}
           />

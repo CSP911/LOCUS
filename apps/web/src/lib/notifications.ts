@@ -56,6 +56,21 @@ export async function scheduleStepNotifications(
   }
 }
 
+/**
+ * 모든 예약된 알림 취소 — 도전 마무리(완료/지연/취소) 시 호출
+ */
+export async function cancelAllNotifications() {
+  try {
+    const { LocalNotifications } = await import('@capacitor/local-notifications')
+    const pending = await LocalNotifications.getPending()
+    if (pending.notifications.length > 0) {
+      await LocalNotifications.cancel(pending)
+    }
+  } catch {
+    // 웹 환경 — 스킵
+  }
+}
+
 // 기존 함수 호환용
 export async function scheduleCheckinNotifications(goalText: string) {
   // process-goal에서 steps와 함께 호출하는 scheduleStepNotifications로 대체됨
